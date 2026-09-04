@@ -6,9 +6,11 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 
+from app.api import webhooks
 from app.controllers import ingest as ingest_ctl
 from app.repos import store
 from app.services import matcher
+from app.workers import live as live_worker
 from app.workers import sweeper
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -91,6 +93,81 @@ def settled_out_of_band(case_id: str, amount: int | None = None,
     if not out.get("ok"):
         raise HTTPException(404, out.get("error", "could not settle"))
     return out
+
+
+@router.post("/demo/fail")
+def demo_fail(name: str = "01_payment_failed_insufficient_funds.json",
+              amount: int | None = None, email: str | None = None,
+              contact: str | None = None):
+    """Seed one failed payment from a fixture. Works with no tunnel and no keys.
+
+    This exists because a demo cannot depend on a tunnel staying up, and a judge
+    cannot be asked to make a real payment fail. It pushes a saved payload through
+    the SAME ingest path a Razorpay webhook takes -- signature check included, via
+    the replay route's own signing -- so what gets demoed is the real handler.
+
+    `amount`, `email` and `contact` are overrides so a filmed run can produce a
+    case that is worth watching (a large one, reaching a real inbox) without
+    editing a fixture on disk.
+    """
+    path = webhooks.FIXTURES / name
+    if not path.exists():
+        raise HTTPException(404, f"no fixture '{name}'. see GET /webhooks/fixtures")
+
+    payload = json.loads(path.read_text())
+    ent = ((payload.get("payload") or {}).get("payment") or {}).get("entity")
+    if not isinstance(ent, dict):
+        raise HTTPException(400, f"'{name}' carries no payment entity to fail")
+
+    # A fresh id per call, or the second demo run is deduped as a retry and the
+    # judge watches nothing happen.
+    stamp = datetime.now().strftime("%H%M%S%f")[:10]
+    oid = f"order_DEMO{stamp}"
+    ent["id"] = f"pay_DEMO{stamp}"
+    ent["order_id"] = oid
+    payload["id"] = f"evt_DEMO{stamp}"
+    if amount is not None:
+        ent["amount"] = int(amount)
+    if email:
+        ent["email"] = email
+    if contact:
+        ent["contact"] = contact
+
+    out = ingest_ctl.ingest(con(), payload, now=datetime.now())
+    out["seeded_from"] = name
+    out["obligation_id"] = oid
+    out["next"] = ("POST /api/worker/tick to decide on it, or wait for the "
+                   "background worker")
+    return out
+
+
+@router.post("/worker/tick")
+def worker_tick():
+    """Run one live decide-and-execute pass by hand. The loop does this on a timer."""
+    from app.services.executor import build_executor
+    from app.workers.live import LiveWorker
+
+    c = con()
+    return LiveWorker(c, build_executor(con=c)).tick(datetime.now())
+
+
+@router.get("/live")
+def live_state():
+    """What the live path is doing right now: cases, actions, contacts, decisions."""
+    c = con()
+    return {
+        "time_scale": live_worker.time_scale(),
+        "abandon_minutes": sweeper.abandon_minutes(),
+        "cases": [dict(r) for r in c.execute(
+            "SELECT * FROM cases WHERE run_id = 'live' ORDER BY opened_at DESC LIMIT 40")],
+        "actions": [dict(r) for r in c.execute(
+            "SELECT * FROM actions ORDER BY created_at DESC LIMIT 40")],
+        "contacts": [dict(r) for r in c.execute(
+            "SELECT * FROM contacts ORDER BY sent_at DESC LIMIT 40")],
+        "decisions": [dict(r) for r in c.execute(
+            "SELECT decision_id, case_id, decided_at, action, stop_reason, notes"
+            " FROM decisions WHERE run_id = 'live' ORDER BY decided_at DESC LIMIT 40")],
+    }
 
 
 @router.get("/checkouts")

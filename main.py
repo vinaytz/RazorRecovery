@@ -19,36 +19,72 @@ from fastapi.responses import FileResponse, JSONResponse
 ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("razorrecovery")
 
-# The abandonment sweep runs on a timer because the thing it looks for is an
-# absence -- no webhook will ever wake it up. 60s is far finer than the 30-minute
-# window it enforces, so the extra latency is noise, and the sweep is idempotent,
-# so a tick that finds nothing costs one indexed query.
-SWEEP_SECONDS = 60
+# The live loop. One second, because at TIME_SCALE=3600 a six-hour wait becomes six
+# seconds and a slower tick would be visible as a stutter in a filmed demo. Both
+# passes are idempotent and indexed, so an idle tick is a couple of queries.
+TICK_SECONDS = 1.0
+
+# The abandonment sweep is far coarser: it enforces a 30-minute window, so a minute
+# of latency is noise. Running it every tick would be a wasted query 59 times out
+# of 60.
+SWEEP_EVERY = 60
 
 
-async def _sweep_loop() -> None:
+async def _live_loop() -> None:
+    """Decide, execute, sweep. The live counterpart of the benchmark's tick loop.
+
+    Runs in a thread per tick because everything under it is blocking sqlite and
+    requests. One tick at a time by construction -- no overlap, so no two ticks can
+    both decide on the same case.
+    """
     from datetime import datetime
 
     from app.api import dashboard
+    from app.services.executor import build_executor
     from app.workers import sweeper
+    from app.workers.live import LiveWorker
 
+    con = dashboard.con()
+    worker = LiveWorker(con, build_executor(con=con))
+    log.info("live worker started: tick=%ss time_scale=%s abandon_minutes=%s",
+             TICK_SECONDS, live_mod_scale(), sweeper.abandon_minutes())
+
+    ticks = 0
     while True:
-        await asyncio.sleep(SWEEP_SECONDS)
+        await asyncio.sleep(TICK_SECONDS)
+        ticks += 1
         try:
-            out = await asyncio.to_thread(sweeper.sweep, dashboard.con(), datetime.now())
-            if out["opened"]:
-                log.info("sweeper: %s", out["verdict"])
+            out = await asyncio.to_thread(worker.tick, datetime.now())
+            if out["decided"] or out["executed"]:
+                log.info("tick: %s", out["verdict"])
         except Exception:
-            # A worker that dies silently is worse than one that logs and retries:
-            # abandoned checkouts would simply stop being noticed.
-            log.exception("sweep tick failed -- retrying on the next tick")
+            # A worker that dies silently is worse than one that logs and retries.
+            # If this loop stops, cases sit OPEN forever and the demo shows nothing.
+            log.exception("live tick failed -- retrying on the next tick")
+
+        if ticks % SWEEP_EVERY == 0:
+            try:
+                swept = await asyncio.to_thread(sweeper.sweep, con, datetime.now())
+                if swept["opened"]:
+                    log.info("sweeper: %s", swept["verdict"])
+            except Exception:
+                log.exception("sweep failed -- retrying on the next sweep")
+
+
+def live_mod_scale() -> float:
+    from app.workers.live import time_scale
+    return time_scale()
+
+
+def _worker_enabled() -> bool:
+    """`WORKER=off` disables the loop. On by default: a recovery engine whose worker
+    is opt-in is a recovery engine that does nothing on a fresh clone."""
+    return os.environ.get("WORKER", "on").strip().lower() not in ("off", "0", "false")
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app_: FastAPI):
-    task = None
-    if os.environ.get("SWEEPER", "on").strip().lower() not in ("off", "0", "false"):
-        task = asyncio.create_task(_sweep_loop())
+    task = asyncio.create_task(_live_loop()) if _worker_enabled() else None
     try:
         yield
     finally:
