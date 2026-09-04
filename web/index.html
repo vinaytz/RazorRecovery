@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RazorRecovery</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#16181d; --muted:#6b7079; --line:#e3e5e9; --bg:#fbfbfc; --card:#fff;
+    --control:#8a8f98; --baseline:#b8bcc4; --engine:#1a6b4f; --oracle:#cfd3d9;
+    --warn:#a8531c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    font-variant-numeric:tabular-nums}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 28px 80px}
+  header{display:flex;justify-content:space-between;align-items:baseline;gap:24px;flex-wrap:wrap}
+  h1{font-size:21px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .tag{color:var(--muted);font-size:14px;margin:6px 0 0}
+  select{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  nav{display:flex;gap:26px;margin:30px 0 0;border-bottom:1px solid var(--line)}
+  nav button{background:none;border:0;padding:0 0 12px;font:inherit;color:var(--muted);
+    cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  nav button.on{color:var(--ink);border-bottom-color:var(--ink)}
+  section{display:none;padding-top:34px} section.on{display:block}
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:30px 32px}
+  .big{font-size:40px;font-weight:600;letter-spacing:-.02em;margin:2px 0 0}
+  .ci{color:var(--muted);font-size:14px;margin-top:6px}
+  .lede{color:var(--muted);font-size:14px}
+  .chartbox{height:300px;margin-top:26px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;margin-top:26px}
+  .cell{background:var(--card);padding:18px 20px}
+  .cell .k{color:var(--muted);font-size:13px}
+  .cell .v{font-size:20px;font-weight:600;margin-top:4px}
+  .cell .n{color:var(--muted);font-size:12.5px;margin-top:3px}
+  table{width:100%;border-collapse:collapse;margin-top:20px;font-size:14px}
+  th{text-align:left;color:var(--muted);font-weight:500;padding:9px 10px;
+    border-bottom:1px solid var(--line)}
+  td{padding:10px;border-bottom:1px solid var(--line)}
+  tbody tr{cursor:pointer} tbody tr:hover{background:#f4f5f7}
+  .num{text-align:right}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;
+    background:#eef0f3;color:#454a52}
+  .pill.good{background:#e4f0ea;color:#1a6b4f} .pill.warn{background:#f7ece3;color:var(--warn)}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:24px 26px;margin-top:20px}
+  .panel h3{margin:0 0 14px;font-size:15px;font-weight:600}
+  .kv{display:grid;grid-template-columns:190px 1fr;gap:7px 18px;font-size:14px}
+  .kv div:nth-child(odd){color:var(--muted)}
+  .gate{display:flex;justify-content:space-between;padding:6px 0;
+    border-bottom:1px solid #f0f1f3;font-size:13.5px}
+  .gate .no{color:var(--warn)} .gate .yes{color:#9aa0a8}
+  button.act{font:inherit;padding:9px 15px;border:1px solid var(--line);background:#fff;
+    border-radius:7px;cursor:pointer}
+  button.act:hover{background:#f4f5f7}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  pre{background:#f6f7f8;border:1px solid var(--line);border-radius:8px;padding:14px;
+    overflow:auto;font-size:12.5px;margin:12px 0 0;max-height:340px}
+  .empty{color:var(--muted);padding:34px 0}
+  .lost td{color:var(--warn)}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <div>
+    <h1>RazorRecovery</h1>
+    <p class="tag">Only counts money it can prove it caused.</p>
+  </div>
+  <select id="run" onchange="loadAll()"></select>
+</header>
+
+<nav>
+  <button class="on" onclick="tab(0,this)">Scoreboard</button>
+  <button onclick="tab(1,this)">Cases</button>
+  <button onclick="tab(2,this)">Decision</button>
+  <button onclick="tab(3,this)">Live ops</button>
+</nav>
+
+<section class="on" id="s0">
+  <div class="hero">
+    <div class="lede">Incremental revenue recovered — engine minus control</div>
+    <div class="big" id="incr">—</div>
+    <div class="ci" id="ci"></div>
+    <div class="chartbox"><canvas id="bars"></canvas></div>
+  </div>
+  <div class="grid" id="stats"></div>
+  <div class="panel">
+    <h3>Where we lost</h3>
+    <div class="lede">Segments where the engine did worse than doing nothing.</div>
+    <table id="lost"><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="row">
+    <select id="arm" onchange="loadCases()">
+      <option value="">All arms</option><option>ENGINE</option>
+      <option>BASELINE</option><option>CONTROL</option><option>ORACLE</option>
+    </select>
+    <button class="act" onclick="loadHl('sleeping_dog')">Sleeping dogs</button>
+    <button class="act" onclick="loadHl('gate_stop')">Gate stops</button>
+    <button class="act" onclick="loadHl('write_off')">Write-offs</button>
+    <button class="act" onclick="loadHl('big_save')">Big saves</button>
+  </div>
+  <table id="cases"><thead><tr>
+    <th>Case</th><th>Failure</th><th>Method</th><th class="num">Amount</th>
+    <th class="num">Rung</th><th>Arm</th><th>Status</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section id="s2">
+  <div id="dec"><div class="empty">Pick a case, or a highlight, to see the decision record.</div></div>
+</section>
+
+<section id="s3">
+  <div class="panel">
+    <h3>Break it on purpose</h3>
+    <div class="lede">Each button injects a real failure and shows what the system did.</div>
+    <div class="row" style="margin-top:16px">
+      <button class="act" onclick="chaos('duplicate_webhook')">Duplicate webhook</button>
+      <button class="act" onclick="chaos('kill_llm')">Kill the LLM</button>
+      <button class="act" onclick="chaos('executor_timeout')">Executor timeout</button>
+      <button class="act" onclick="chaos('pay_midflight')">Customer pays mid-flight</button>
+    </div>
+    <pre id="chaosout">Press one.</pre>
+  </div>
+</section>
+
+</div>
+<script>
+const R = p => "₹" + Math.round((p||0)/100).toLocaleString("en-IN");
+const $ = s => document.querySelector(s);
+let BOARD = null, chart = null;
+
+function tab(i, el){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.remove("on"));
+  el.classList.add("on");
+  document.querySelectorAll("section").forEach((s,j)=>s.classList.toggle("on", j===i));
+}
+const runId = () => $("#run").value || "default";
+
+async function boot(){
+  const r = await (await fetch("/api/runs")).json();
+  $("#run").innerHTML = (r.runs||[]).map(x=>`<option>${x.run_id}</option>`).join("")
+    || "<option>default</option>";
+  loadAll();
+}
+async function loadAll(){ await loadBoard(); loadCases(); }
+
+async function loadBoard(){
+  const res = await fetch("/api/scoreboard?run_id="+runId());
+  if(!res.ok){ $("#incr").textContent="run the benchmark first"; return; }
+  BOARD = await res.json();
+  const h = BOARD.headline, o = BOARD.honesty, a = BOARD.arms;
+
+  $("#incr").textContent = R(h.incremental);
+  $("#ci").textContent =
+    `95% CI ${R(h.incremental_ci_low)} – ${R(h.incremental_ci_high)}   ·   `+
+    `${(h.pct_of_oracle_ceiling*100).toFixed(1)}% of the perfect-play ceiling   ·   `+
+    `net of reversals ${R(h.incremental_net)}`;
+
+  const names=["CONTROL","BASELINE","ENGINE","ORACLE"];
+  const vals=names.map(n=>(a[n]?.gross_recovered||0)/100);
+  const cols=["#8a8f98","#b8bcc4","#1a6b4f","#cfd3d9"];
+  if(chart) chart.destroy();
+  chart = new Chart($("#bars"), {
+    type:"bar",
+    data:{labels:names.map(n=>n[0]+n.slice(1).toLowerCase()),
+          datasets:[{data:vals,backgroundColor:cols,borderRadius:4,barPercentage:.62}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c=>"₹"+Math.round(c.raw).toLocaleString("en-IN")}},
+      title:{display:true,align:"start",color:"#6b7079",font:{weight:"400",size:13},
+        text:"Control is not a competitor — it is the measuring stick. "+
+             "The gap between it and Engine is the product."}},
+      scales:{y:{ticks:{callback:v=>"₹"+(v/1000).toFixed(0)+"k"},
+        grid:{color:"#eceef1"}},x:{grid:{display:false}}}}
+  });
+
+  $("#stats").innerHTML = [
+    ["Recovered anyway (control)", R(h.control_organic),
+     "money that arrived with no help from us"],
+    ["Engine gross", R(h.engine_gross), `vs baseline ${R(h.baseline_gross)}`],
+    ["False chase rate", o.false_chase_per_10k_engine+" / 10k",
+     `baseline ${o.false_chase_per_10k_baseline} / 10k`],
+    ["Left alone on purpose", o.left_alone_count.toLocaleString(),
+     R(o.left_alone_value)+" deliberately not chased"],
+    ["Written off", o.written_off_count.toLocaleString(), R(o.written_off_value)],
+    ["Customer contacts", o.contacts_engine.toLocaleString(),
+     `baseline ${o.contacts_baseline?.toLocaleString()}`],
+  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
+      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+  $("#lost tbody").innerHTML = (o.where_we_lost||[]).length
+    ? o.where_we_lost.map(r=>`<tr class="lost"><td>${r.segment}</td>
+        <td class="num">${(r.engine_rate*100).toFixed(1)}%</td>
+        <td class="num">${(r.control_rate*100).toFixed(1)}%</td>
+        <td class="num">${(r.delta*100).toFixed(1)} pp</td><td class="num">${r.n}</td></tr>`).join("")
+    : `<tr><td class="empty">No segment where the engine underperformed doing nothing.</td></tr>`;
+}
+
+async function loadCases(){
+  const arm = $("#arm").value;
+  const r = await (await fetch(`/api/cases?run_id=${runId()}&limit=60`+(arm?`&arm=${arm}`:""))).json();
+  $("#cases tbody").innerHTML = (r.cases||[]).map(c=>`
+    <tr onclick="openCase('${c.case_id}')">
+      <td>${c.case_id.slice(0,26)}</td><td>${c.failure_class}</td><td>${c.method}</td>
+      <td class="num">${R(c.amount)}</td><td class="num">${c.rung}</td><td>${c.arm}</td>
+      <td><span class="pill ${/RECOVERED/.test(c.status)?'good':(c.status==='WRITTEN_OFF'?'warn':'')}">
+        ${c.status}</span></td></tr>`).join("")
+    || `<tr><td class="empty">No cases stored for this run.</td></tr>`;
+}
+
+async function loadHl(kind){
+  const r = await (await fetch(`/api/highlights?run_id=${runId()}&kind=${kind}&limit=20`)).json();
+  const d = r.decisions||[];
+  if(!d.length){ alert("none recorded for "+kind); return; }
+  showDecision(d[0].decision_id);
+}
+
+async function openCase(id){
+  const c = await (await fetch("/api/case/"+id)).json();
+  const last = (c.decisions||[]).slice(-1)[0];
+  if(!last){ alert("no decision recorded for this case"); return; }
+  showDecision(last.decision_id);
+}
+
+async function showDecision(id){
+  const r = await (await fetch("/api/replay/"+id)).json();
+  const s = r.snapshot;
+  document.querySelectorAll("nav button")[2].click();
+  $("#dec").innerHTML = `
+  <div class="panel"><h3>What we knew</h3><div class="kv">
+    <div>Obligation</div><div>${s.obligation_id} · ${s.kind}</div>
+    <div>Amount outstanding</div><div>${R(s.amount_due - s.amount_settled)}</div>
+    <div>Failure</div><div>${s.failure_class} on ${s.method}${s.is_mandate?" (mandate)":""}</div>
+    <div>Attempts / rung</div><div>${s.attempts} / ${s.rung}</div>
+    <div>Contacts last 7 days</div><div>${s.contacts_last_7d}</div>
+    <div>Arm</div><div>${s.arm}</div>
+    <div>Decided at</div><div>${s.now}</div>
+  </div></div>
+
+  <div class="panel"><h3>Gates</h3>
+    ${r.gate_trace.map(g=>`<div class="gate"><span>${g.gate}</span>
+      <span class="${g.passed?'yes':'no'}">${g.passed?'pass':g.detail}</span></div>`).join("")}
+  </div>
+
+  <div class="panel"><h3>Candidates</h3>
+    ${r.candidates.length ? `<table><thead><tr><th>Action</th>
+      <th class="num">P(pay | act)</th><th class="num">P(pay | nothing)</th>
+      <th class="num">Uplift</th><th class="num">EV</th></tr></thead><tbody>
+      ${r.candidates.map(c=>`<tr><td>${c.action}</td>
+        <td class="num">${c.p_act.toFixed(3)}</td><td class="num">${c.p_none.toFixed(3)}</td>
+        <td class="num" style="color:${c.uplift<0?'var(--warn)':'inherit'}">
+          ${c.uplift>=0?'+':''}${c.uplift.toFixed(3)}</td>
+        <td class="num">${R(c.ev*100)}</td></tr>`).join("")}
+      </tbody></table>`
+      : `<div class="lede">Blocked by a gate before scoring — no candidates were considered.</div>`}
+  </div>
+
+  <div class="panel"><h3>Decision</h3><div class="kv">
+    <div>Then</div><div><b>${r.then.action}</b>${r.then.stop_reason?` · ${r.then.stop_reason}`:""}</div>
+    <div>Replayed now</div><div><b>${r.now.action}</b>${r.now.stop_reason?` · ${r.now.stop_reason}`:""}</div>
+    <div>Match</div><div><span class="pill ${r.match?'good':'warn'}">${r.match}</span></div>
+    <div>Reasoning</div><div>${r.notes||"—"}</div>
+  </div>
+  <div class="lede" style="margin-top:14px">
+    Replayed from the stored snapshot. It reproduces because the decision function
+    never touched a database.</div>
+  </div>`;
+}
+
+async function chaos(kind){
+  $("#chaosout").textContent = "running…";
+  const r = await (await fetch("/api/chaos/"+kind,{method:"POST"})).json();
+  $("#chaosout").textContent = JSON.stringify(r,null,2);
+}
+boot();
+</script>
+</body></html>

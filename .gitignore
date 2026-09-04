@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+*.db
+.llm_cache/
+results*.json
+.venv/

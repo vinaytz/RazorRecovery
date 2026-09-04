@@ -1,0 +1,86 @@
+version: "v1"
+
+# All money in paise. All durations in hours unless named otherwise.
+
+experiment:
+  holdout_pct: 50          # 50/50 in simulation (control cases are free here).
+                           # 5 in production, because a holdout costs real money.
+  seed: 42
+  reversal_rate: 0.03      # T+30 refunds/chargebacks → net vs gross
+  attribution_window_days: 30
+
+recovery:
+  window_hours: 168        # 7 days, then write off
+  max_attempts: 3          # hard retry budget
+  max_rung: 6
+  max_contacts_7d: 3       # per customer, all channels
+
+compliance:
+  afa_limit: 1500000               # ₹15,000 in paise
+  afa_limit_essentials: 10000000   # ₹1,00,000 — insurance, MF, card bills
+  mandate_pre_debit_notice_hours: 24
+  quiet_hours:
+    start: 21              # no contact 21:00 → 09:00 local
+    end: 9
+  respect_dnd: true
+
+allocator:
+  global_contact_budget_per_tick: 40
+
+# Rupee cost of taking the action at all (gateway fee, SMS cost, human time)
+action_cost:
+  WAIT: 0
+  RETRY: 200               # ₹2
+  REMIND: 25
+  PAY_LINK: 25
+  METHOD_CHANGE: 25
+  HUMAN: 15000             # ₹150 of someone's time
+  WRITE_OFF: 0
+  NONE: 0
+
+# Rupee-equivalent penalty for customer annoyance. Multiplied by friction_multiplier,
+# which scales with contacts_last_7d. This is what stops the engine spamming.
+friction_cost:
+  WAIT: 0
+  RETRY: 100
+  REMIND: 800
+  PAY_LINK: 800
+  METHOD_CHANGE: 1200
+  HUMAN: 3000
+  WRITE_OFF: 0
+  NONE: 0
+
+contacts_used:             # for the allocator's ev-per-contact ranking
+  WAIT: 0
+  RETRY: 0                 # silent — no customer contact
+  REMIND: 1
+  PAY_LINK: 1
+  METHOD_CHANGE: 1
+  HUMAN: 1
+  WRITE_OFF: 0
+
+bandit:
+  prior_alpha: 1.0
+  prior_beta: 1.0
+  shrinkage_threshold: 30  # below this many observations, blend toward parent segment
+
+baseline:                  # the fixed-policy opponent
+  retry_schedule_hours: [0, 1, 24]
+  then: REMIND
+  then_stop: true
+
+timing:
+  insufficient_funds_wait_for_payday: true
+  payday_window_days: [1, 2, 3, 4, 5, 6, 7]
+  downtime_backoff_minutes: 15
+
+llm:
+  mode: stub               # stub | gemini
+  model: "gemini-2.0-flash"
+  temperature: 0.0
+  cache_dir: ".llm_cache"
+
+runtime:
+  dry_run: true
+  tick_seconds: 10
+  batch_size: 200
