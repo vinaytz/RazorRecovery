@@ -21,11 +21,16 @@ import json
 from datetime import datetime
 from typing import Any
 
-from app.domain.models import ActionType, FailureClass
+from app.domain.models import FailureClass
+from app.repos import store
+from app.services import matcher
 
 # Events that mean "the debt is gone". Anything here closes the case.
+# `payment_link.paid` is here because a link we minted can settle without us ever
+# seeing the merchant's order id -- see app/services/matcher.py on why.
 SETTLED_EVENTS = frozenset({
     "payment.captured", "order.paid", "subscription.charged", "invoice.paid",
+    "payment_link.paid",
 })
 
 # Events that mean "the debt exists and nobody has paid it".
@@ -184,7 +189,7 @@ def ingest(con, payload: dict, headers: dict | None = None,
                            "duplicate": False, "applied": True}
 
     if event in SETTLED_EVENTS:
-        out.update(_close_settled(con, oid, now))
+        out.update(_close_settled(con, payload, oid, now))
     elif event in FAILURE_EVENTS:
         out.update(_open_case(con, payload, oid, now, llm))
     elif event in DOWNTIME_EVENTS:
@@ -240,31 +245,146 @@ def _open_case(con, payload: dict, oid: str, now: datetime, llm=None) -> dict:
             "verdict": f"case opened, classified {fc.value}"}
 
 
-def _close_settled(con, oid: str, now: datetime) -> dict:
-    """The debt is gone. Close the case, cancel pending work, send nothing.
+def _close_settled(con, payload: dict, oid: str, now: datetime) -> dict:
+    """The debt is gone. Work out WHICH debt, close it, cancel pending work.
 
-    This is the branch that stops us chasing a customer who already paid.
+    This is the branch that stops us chasing a customer who already paid, and the
+    branch that decides whether the money counts as ours. Both halves are
+    deliberately separate:
+
+      MATCHING  which obligation did this payment settle, and how sure are we
+                (`app/services/matcher.py`, levels 1-5)
+      ATTRIBUTION  did we do anything before it paid
+
+    Attribution is NOT causation. A case marked RECOVERED means we contacted the
+    customer and then they paid; it does not prove they paid because of us. The
+    only number that carries that claim is the holdout comparison in the
+    benchmark, and it is measured against customers we deliberately never touch.
     """
-    con.execute(
-        "INSERT INTO obligations (id, customer_id, amount_due, amount_settled, status, opened_at)"
-        " VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
-        " status='SETTLED', amount_settled=amount_due",
-        (oid, "cust_live", 0, 0, "SETTLED", now.isoformat()))
+    m = matcher.match_settlement(con, payload, now)
+    amount = matcher.amount_of_settlement(payload)
+    payment_id = matcher.payment_id_of(payload)
+    method = method_of(payload)
 
+    if not m.matched:
+        # Money we saw arrive and cannot attribute. Recorded, not guessed at, and
+        # surfaced for a human -- silently dropping it would make the ledger drift.
+        fresh = store.record_settlement(
+            con, payment_id=payment_id, obligation_id=None, case_id=None,
+            amount=amount, method=method, match_level=m.level, match_basis=m.basis,
+            match_confidence=m.confidence, match_evidence=m.evidence,
+            candidates=m.candidates, attributed=False,
+            attribution_reason="nothing closed -- this settlement is unmatched",
+            settled_at=now.isoformat(), source="webhook")
+        return {"action": "settlement_unmatched", "match": m.as_dict(),
+                "counted": fresh,
+                "verdict": (f"settlement of {amount} paise could not be matched to an "
+                            f"open debt ({m.evidence}) -- recorded for review, "
+                            f"NOTHING closed")}
+
+    target = m.obligation_id
+    con.execute(
+        "INSERT INTO obligations (id, customer_id, amount_due, amount_settled, status,"
+        " opened_at) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+        " status='SETTLED', amount_settled=MAX(amount_settled, ?)",
+        (target, "cust_live", amount, amount, "SETTLED", now.isoformat(), amount))
+
+    # ATTRIBUTION. Two things can make a settlement ours, and both are facts we
+    # recorded ourselves rather than inferences about the customer.
+    paid_our_link = matcher.via_our_link(payload)
+    contact = store.was_contacted(con, target)
+    if paid_our_link:
+        attributed, why = True, "paid through the payment link we sent"
+    elif contact:
+        attributed, why = True, (f"we sent a {contact['action']} on "
+                                 f"{contact['sent_at']} before this settled")
+    else:
+        attributed, why = False, "no contact had been made when this settled"
+
+    status = "RECOVERED" if attributed else "SELF_RECOVERED"
     cur = con.execute(
-        "UPDATE cases SET status='SELF_RECOVERED', closed_at=? "
-        "WHERE obligation_id=? AND status='OPEN'", (now.isoformat(), oid))
+        "UPDATE cases SET status=?, closed_at=?, match_level=?, match_basis=?,"
+        " match_confidence=? WHERE obligation_id=? AND status='OPEN'",
+        (status, now.isoformat(), m.level, m.basis, m.confidence, target))
     closed = cur.rowcount
+    case_row = con.execute("SELECT case_id FROM cases WHERE obligation_id=? LIMIT 1",
+                           (target,)).fetchone()
 
     cancelled = con.execute(
         "UPDATE actions SET status='CANCELLED', detail='obligation settled' "
-        "WHERE obligation_id=? AND status='PENDING'", (oid,)).rowcount
+        "WHERE obligation_id=? AND status='PENDING'", (target,)).rowcount
+    links = store.mark_payment_link(con, target, "paid")
     con.commit()
 
-    return {"action": "case_closed", "cases_closed": closed,
-            "actions_cancelled": cancelled,
-            "verdict": (f"settled -- {closed} case(s) closed SELF_RECOVERED, "
-                        f"{cancelled} pending action(s) cancelled. nothing sent.")}
+    fresh = store.record_settlement(
+        con, payment_id=payment_id, obligation_id=target,
+        case_id=case_row["case_id"] if case_row else None,
+        amount=amount, method=method, match_level=m.level, match_basis=m.basis,
+        match_confidence=m.confidence, match_evidence=m.evidence,
+        candidates=m.candidates, attributed=attributed, attribution_reason=why,
+        settled_at=now.isoformat(), source="webhook")
+
+    return {"action": "case_closed", "obligation_id": target,
+            "cases_closed": closed, "actions_cancelled": cancelled,
+            "links_closed": links, "status": status,
+            "match": m.as_dict(), "attributed": attributed,
+            "attribution_reason": why, "counted": fresh,
+            "verdict": (f"settled -- matched at level {m.level} "
+                        f"({m.basis}, {m.confidence}): {m.evidence}. "
+                        f"{closed} case(s) closed {status}, {cancelled} pending "
+                        f"action(s) cancelled, {links} link(s) closed. nothing sent."
+                        + ("" if fresh else " already counted, not double-counted."))}
+
+
+def settle_from_ledger(con, case_id: str, now: datetime, *, amount: int | None = None,
+                       who: str | None = None, reference: str | None = None,
+                       note: str | None = None) -> dict:
+    """Level 5. Cash, bank transfer, a cheque -- money with no webhook.
+
+    Deliberately not 'certain': we are recording somebody's word. It closes the
+    case exactly like a webhook would, so the customer stops being chased, but the
+    match level on the row says where the fact came from.
+    """
+    row = con.execute("SELECT case_id, obligation_id, amount, customer_id FROM cases"
+                      " WHERE case_id = ?", (case_id,)).fetchone()
+    if not row:
+        return {"ok": False, "error": f"no case '{case_id}'"}
+
+    target = row["obligation_id"]
+    paid = int(amount if amount is not None else (row["amount"] or 0))
+    m = matcher.ledger_match(case_id, target, who, reference)
+
+    con.execute("UPDATE obligations SET status='SETTLED',"
+                " amount_settled=MAX(amount_settled, ?) WHERE id = ?", (paid, target))
+    closed = con.execute(
+        "UPDATE cases SET status='RECOVERED', closed_at=?, match_level=?,"
+        " match_basis=?, match_confidence=? WHERE case_id=? AND status='OPEN'",
+        (now.isoformat(), m.level, m.basis, m.confidence, case_id)).rowcount
+    cancelled = con.execute(
+        "UPDATE actions SET status='CANCELLED', detail='settled out of band' "
+        "WHERE obligation_id=? AND status='PENDING'", (target,)).rowcount
+    links = store.mark_payment_link(con, target, "cancelled")
+    con.commit()
+
+    contact = store.was_contacted(con, target)
+    why = ((f"we sent a {contact['action']} on {contact['sent_at']} before this "
+            f"was recorded") if contact else
+           "recorded manually with no contact on file")
+    fresh = store.record_settlement(
+        con, payment_id=f"ledger:{case_id}", obligation_id=target, case_id=case_id,
+        amount=paid, method="offline", match_level=m.level, match_basis=m.basis,
+        match_confidence=m.confidence,
+        match_evidence=m.evidence + (f" -- {note}" if note else ""),
+        candidates=1, attributed=bool(contact), attribution_reason=why,
+        settled_at=now.isoformat(), source="ledger_hook")
+
+    return {"ok": True, "case_id": case_id, "obligation_id": target,
+            "cases_closed": closed, "actions_cancelled": cancelled,
+            "links_closed": links, "match": m.as_dict(), "counted": fresh,
+            "verdict": (f"recorded at level 5 (asserted, not observed): {m.evidence}. "
+                        f"{closed} case(s) closed, {cancelled} action(s) cancelled."
+                        + ("" if fresh else " already recorded."))}
+
 
 
 # -- payload shape helpers -------------------------------------------------

@@ -117,6 +117,18 @@
 
 <section id="s3">
   <div class="panel">
+    <h3>Settled money, and how sure we are it belongs here</h3>
+    <div class="lede">Every settlement is matched to a debt on a five-rung ladder.
+      Levels 1–2 are exact ids. Level 3 matched a phone or email and an amount.
+      Level 4 matched only an amount — that is a guess, and it is labelled one.
+      Level 5 is a human's word for money we never saw arrive.</div>
+    <div class="grid" id="matchtotals"></div>
+    <table id="matchdist"><thead><tr>
+      <th>Level</th><th>Matched on</th><th>Confidence</th>
+      <th class="num">Settlements</th><th class="num">Amount</th></tr></thead><tbody></tbody></table>
+    <div id="unmatched"></div>
+  </div>
+  <div class="panel">
     <h3>Break it on purpose</h3>
     <div class="lede">Each button injects a real failure and shows what the system did.</div>
     <div class="row" style="margin-top:16px">
@@ -148,7 +160,50 @@ async function boot(){
     || "<option>default</option>";
   loadAll();
 }
-async function loadAll(){ await loadBoard(); loadCases(); }
+async function loadAll(){ await loadBoard(); loadCases(); loadMatches(); }
+
+const CONF = {certain:"good", strong:"", heuristic:"warn", asserted:"warn",
+              ambiguous:"warn", none:"warn"};
+
+async function loadMatches(){
+  const res = await fetch("/api/settlements");
+  if(!res.ok) return;
+  const r = await res.json(), d = r.distribution;
+
+  if(!d.settlements){
+    $("#matchtotals").innerHTML = "";
+    $("#matchdist tbody").innerHTML =
+      `<tr><td colspan="5" class="empty">No settlements yet. Replay a fixture from
+       Live ops, or send a <code>payment.captured</code> webhook, and the matched
+       money appears here.</td></tr>`;
+    $("#unmatched").innerHTML = "";
+    return;
+  }
+
+  $("#matchtotals").innerHTML = [
+    ["Settled", R(d.amount), d.settlements+" settlement"+(d.settlements===1?"":"s")],
+    ["Matched on an exact id", R(d.amount_certain), d.pct_certain+"% of the total"],
+    ["Matched some other way", R(d.amount_not_certain),
+     "contact, amount, or somebody's word"],
+  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
+      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+  $("#matchdist tbody").innerHTML = d.levels.map(l=>{
+    const rung = r.ladder[String(l.level)] || {means:"could not be matched to any debt"};
+    return `<tr><td>${l.level ?? "—"}</td><td>${rung.means}</td>
+      <td><span class="pill ${CONF[l.confidence]||""}">${l.confidence}</span></td>
+      <td class="num">${l.n}</td><td class="num">${R(l.amount)}</td></tr>`;
+  }).join("");
+
+  $("#unmatched").innerHTML = (r.unmatched||[]).length
+    ? `<div class="lede" style="margin-top:18px"><b>${r.unmatched.length}</b> settlement(s)
+       arrived that we could not attribute to an open debt. Nothing was closed for them —
+       they are here so the ledger does not silently drift.</div>
+       <table><tbody>${r.unmatched.map(u=>`<tr><td>${u.payment_id}</td>
+         <td class="num">${R(u.amount)}</td><td>${u.match_evidence}</td></tr>`).join("")}
+       </tbody></table>`
+    : "";
+}
 
 async function loadBoard(){
   const res = await fetch("/api/scoreboard?run_id="+runId());
@@ -276,6 +331,7 @@ async function chaos(kind){
   $("#chaosout").textContent = "running…";
   const r = await (await fetch("/api/chaos/"+kind,{method:"POST"})).json();
   $("#chaosout").textContent = JSON.stringify(r,null,2);
+  loadMatches();
 }
 boot();
 </script>

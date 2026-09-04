@@ -1,0 +1,45 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "payment.captured",
+  "contains": ["payment"],
+  "_comment": "A payment made through a link WE minted. Note two things: order_id is an id Razorpay created FOR THE LINK (order_PLINKTEST00001) and the merchant has never seen it -- the real debt is order_TEST000000006, carried in notes.obligation_id. And notes.source is the one marker in this payload that only we could have written, which is what makes the recovery attributable. See app/services/matcher.py.",
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_TEST0000000006",
+        "entity": "payment",
+        "amount": 499900,
+        "currency": "INR",
+        "status": "captured",
+        "order_id": "order_PLINKTEST00001",
+        "invoice_id": null,
+        "international": false,
+        "method": "upi",
+        "amount_refunded": 0,
+        "captured": true,
+        "description": "Complete your pending payment to ExampleMart",
+        "vpa": "customer@exampleupi",
+        "email": "customer@example.com",
+        "contact": "+919000000006",
+        "customer_id": "cust_TEST00000006",
+        "notes": {
+          "obligation_id": "order_TEST000000006",
+          "order_id": "order_TEST000000006",
+          "recovery_action": "PAY_LINK",
+          "source": "razorrecovery"
+        },
+        "fee": 11798,
+        "tax": 1800,
+        "error_code": null,
+        "error_description": null,
+        "error_source": null,
+        "error_step": null,
+        "error_reason": null,
+        "created_at": 1772100400
+      }
+    }
+  },
+  "created_at": 1772100401,
+  "id": "evt_TEST0000000006"
+}

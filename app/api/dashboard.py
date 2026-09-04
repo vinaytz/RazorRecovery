@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
+from app.controllers import ingest as ingest_ctl
 from app.repos import store
+from app.services import matcher
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 _con = None
@@ -50,3 +53,41 @@ def case(case_id: str):
 def highlights(run_id: str = "default", kind: str = "sleeping_dog", limit: int = 20):
     """The decisions worth putting on camera, found automatically."""
     return {"kind": kind, "decisions": store.highlights(con(), run_id, kind, limit)}
+
+
+# -- the live settlement ledger -------------------------------------------
+# Everything below is the LIVE path, not the benchmark. A simulated case never
+# has to work out which debt a payment belongs to; a real one always does.
+
+@router.get("/settlements")
+def settlements(limit: int = 100):
+    """Recovered money, and how sure we are that it belongs to what we closed.
+
+    The distribution matters more than the total. `pct_certain` is the share of
+    recovered rupees matched on an exact id; the rest was matched on a contact, an
+    amount, or somebody's word, and the dashboard shows it that way.
+    """
+    c = con()
+    return {"distribution": store.match_distribution(c),
+            "ladder": {str(k): {"basis": v[0], "confidence": v[1], "means": v[2]}
+                       for k, v in matcher.LADDER.items()},
+            "unmatched": store.unmatched_settlements(c),
+            "settlements": store.list_settlements(c, limit)}
+
+
+@router.post("/cases/{case_id}/settled")
+def settled_out_of_band(case_id: str, amount: int | None = None,
+                        who: str | None = None, reference: str | None = None,
+                        note: str | None = None):
+    """Level 5 of the match ladder: cash, bank transfer, a cheque in the post.
+
+    There is no webhook for money that never touched Razorpay, so a human records
+    it here. The case closes and the customer stops being chased -- but the row
+    says `asserted`, not `certain`, because we did not observe this money.
+    """
+    out = ingest_ctl.settle_from_ledger(con(), case_id, datetime.now(), amount=amount,
+                                       who=who, reference=reference, note=note)
+    if not out.get("ok"):
+        raise HTTPException(404, out.get("error", "could not settle"))
+    return out
+

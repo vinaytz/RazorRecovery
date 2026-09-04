@@ -1,0 +1,54 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "payment_link.paid",
+  "contains": ["payment_link", "payment"],
+  "_comment": "The link-level settlement event. Razorpay sends this alongside payment.captured, which is exactly why UNIQUE(settlements.payment_id) exists -- two events, one payment, one recovery.",
+  "payload": {
+    "payment_link": {
+      "entity": {
+        "id": "plink_TEST00000001",
+        "entity": "payment_link",
+        "status": "paid",
+        "amount": 499900,
+        "amount_paid": 499900,
+        "currency": "INR",
+        "reference_id": "order_TEST000000007#PAY_LINK",
+        "description": "Complete your pending payment to ExampleMart",
+        "short_url": "https://rzp.io/i/TESTlink07",
+        "notes": {
+          "obligation_id": "order_TEST000000007",
+          "order_id": "order_TEST000000007",
+          "recovery_action": "PAY_LINK",
+          "source": "razorrecovery"
+        },
+        "created_at": 1772100000,
+        "expire_by": 1772500000
+      }
+    },
+    "payment": {
+      "entity": {
+        "id": "pay_TEST0000000007",
+        "entity": "payment",
+        "amount": 499900,
+        "currency": "INR",
+        "status": "captured",
+        "order_id": "order_PLINKTEST00002",
+        "method": "card",
+        "captured": true,
+        "email": "customer@example.com",
+        "contact": "+919000000007",
+        "customer_id": "cust_TEST00000007",
+        "notes": {
+          "obligation_id": "order_TEST000000007",
+          "order_id": "order_TEST000000007",
+          "recovery_action": "PAY_LINK",
+          "source": "razorrecovery"
+        },
+        "created_at": 1772100399
+      }
+    }
+  },
+  "created_at": 1772100401,
+  "id": "evt_TEST0000000007"
+}

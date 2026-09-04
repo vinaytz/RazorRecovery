@@ -176,12 +176,12 @@ def test_replay_all_fixtures(client):
     r = c.post("/webhooks/razorpay/replay")
     assert r.status_code == 200
     b = r.json()
-    assert b["replayed"] == 5
+    assert b["replayed"] == 7
     assert all(x["signature_verified"] for x in b["results"])
 
 
-def test_five_fixtures_on_disk():
-    assert len(sorted(FIXTURES.glob("*.json"))) == 5
+def test_seven_fixtures_on_disk():
+    assert len(sorted(FIXTURES.glob("*.json"))) == 7
 
 
 # -- classifier ------------------------------------------------------------

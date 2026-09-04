@@ -15,12 +15,14 @@ Holds four things:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-DB_PATH = Path(__file__).resolve().parents[2] / "razorrecovery.db"
+DB_PATH = Path(os.getenv("RAZORRECOVERY_DB")
+               or Path(__file__).resolve().parents[2] / "razorrecovery.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -75,6 +77,23 @@ CREATE TABLE IF NOT EXISTS contacts (
   case_id TEXT, channel TEXT, action TEXT, tier TEXT, used_llm INTEGER DEFAULT 0,
   subject TEXT, sent_at TEXT, ok INTEGER DEFAULT 0, detail TEXT);
 CREATE INDEX IF NOT EXISTS ix_contacts_cust ON contacts(customer_id, sent_at);
+
+-- Money arriving, and HOW SURE WE ARE that it belongs to the debt we closed.
+-- `match_level` 1-2 are exact ids, 3 is strong, 4 is a heuristic, 5 is a human's
+-- word. The level is stored per settlement and mirrored onto the case, because a
+-- recovery total is only as trustworthy as the weakest match inside it, and an
+-- operator has to be able to see the mix.
+-- `payment_id` is UNIQUE: two events describing one payment (payment.captured and
+-- order.paid both fire) must not become two recoveries.
+CREATE TABLE IF NOT EXISTS settlements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, payment_id TEXT UNIQUE NOT NULL,
+  obligation_id TEXT, case_id TEXT, amount INTEGER, method TEXT,
+  match_level INTEGER, match_basis TEXT, match_confidence TEXT,
+  match_evidence TEXT, candidates INTEGER DEFAULT 1,
+  attributed INTEGER DEFAULT 0, attribution_reason TEXT,
+  settled_at TEXT, source TEXT);
+CREATE INDEX IF NOT EXISTS ix_settle_ob ON settlements(obligation_id);
+CREATE INDEX IF NOT EXISTS ix_settle_level ON settlements(match_level);
 """
 
 # Columns added after the first release. sqlite has no "ADD COLUMN IF NOT EXISTS",
@@ -82,7 +101,24 @@ CREATE INDEX IF NOT EXISTS ix_contacts_cust ON contacts(customer_id, sent_at);
 # instead of assuming. Additive only -- nothing is ever dropped or retyped.
 LATE_COLUMNS: dict[str, dict[str, str]] = {
     "obligations": {"contact": "TEXT", "email": "TEXT", "name": "TEXT"},
+    # How the settlement that closed this case was matched to it. NULL for every
+    # simulated case -- the benchmark never has to match anything, which is
+    # exactly the ambiguity the live path has to survive.
+    "cases": {"match_level": "INTEGER", "match_basis": "TEXT",
+              "match_confidence": "TEXT"},
 }
+
+# Column order for the two tables the benchmark writes positionally. Named
+# explicitly because `INSERT INTO cases VALUES (?,...)` breaks the moment anyone
+# adds a column -- and `match_level` above is exactly that moment.
+CASE_COLUMNS = ("case_id", "run_id", "obligation_id", "customer_id", "arm", "amount",
+                "failure_class", "method", "kind", "rung", "attempts", "status",
+                "contacts_sent", "actions_taken", "opened_at", "closed_at")
+
+DECISION_COLUMNS = ("decision_id", "run_id", "case_id", "decided_at", "action",
+                    "stop_reason", "snapshot", "gate_trace", "candidates",
+                    "config_version", "notes", "highlight")
+
 
 
 def connect(path: str | Path = DB_PATH) -> sqlite3.Connection:
@@ -116,14 +152,16 @@ def save_run(con, run_id, preset, n, seed, created_at, board) -> None:
 
 
 def save_cases(con, rows: list[tuple]) -> None:
-    con.executemany(
-        "INSERT OR REPLACE INTO cases VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    cols = ", ".join(CASE_COLUMNS)
+    marks = ",".join("?" * len(CASE_COLUMNS))
+    con.executemany(f"INSERT OR REPLACE INTO cases ({cols}) VALUES ({marks})", rows)
     con.commit()
 
 
 def save_decisions(con, rows: list[tuple]) -> None:
-    con.executemany(
-        "INSERT OR REPLACE INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    cols = ", ".join(DECISION_COLUMNS)
+    marks = ",".join("?" * len(DECISION_COLUMNS))
+    con.executemany(f"INSERT OR REPLACE INTO decisions ({cols}) VALUES ({marks})", rows)
     con.commit()
 
 
@@ -202,6 +240,83 @@ def contacts_last_7d(con, customer_id: str, now: datetime) -> int:
         "SELECT COUNT(*) FROM contacts WHERE customer_id = ? AND ok = 1 AND sent_at >= ?",
         (customer_id, since)).fetchone()
     return int(r[0] if r else 0)
+
+
+def was_contacted(con, obligation_id: str) -> dict | None:
+    """The last successful contact on this debt, or None. Drives attribution."""
+    r = con.execute(
+        "SELECT * FROM contacts WHERE obligation_id = ? AND ok = 1 "
+        "ORDER BY sent_at DESC LIMIT 1", (obligation_id,)).fetchone()
+    return dict(r) if r else None
+
+
+# -- settlements -----------------------------------------------------------
+# A settlement row is the recovery record. It carries the match level so that a
+# recovery total can be read at the confidence it was actually earned at.
+
+def record_settlement(con, *, payment_id: str, obligation_id: str | None,
+                      case_id: str | None, amount: int, method: str,
+                      match_level: int | None, match_basis: str,
+                      match_confidence: str, match_evidence: str, candidates: int,
+                      attributed: bool, attribution_reason: str,
+                      settled_at: str, source: str) -> bool:
+    """Returns True if this is a new settlement, False if we had already recorded it.
+
+    INSERT OR IGNORE on UNIQUE(payment_id): `payment.captured` and `order.paid`
+    describe the same money, and counting it twice would inflate the one number
+    the whole project exists to state honestly.
+    """
+    cur = con.execute(
+        "INSERT OR IGNORE INTO settlements (payment_id, obligation_id, case_id, amount,"
+        " method, match_level, match_basis, match_confidence, match_evidence,"
+        " candidates, attributed, attribution_reason, settled_at, source)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (payment_id, obligation_id, case_id, amount, method, match_level, match_basis,
+         match_confidence, match_evidence, candidates, 1 if attributed else 0,
+         attribution_reason, settled_at, source))
+    con.commit()
+    return bool(cur.rowcount)
+
+
+def match_distribution(con) -> dict:
+    """How the recovered money was matched, by level. The honesty surface.
+
+    Returned newest-strongest first with the amount at each level, because
+    "Rs 40,000 recovered" means something different if it was matched on an exact
+    order id than if it was matched on an amount that happened to be similar.
+    """
+    rows = list(con.execute(
+        "SELECT match_level AS level, match_basis AS basis,"
+        " match_confidence AS confidence, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount"
+        " FROM settlements GROUP BY match_level, match_basis, match_confidence"
+        " ORDER BY match_level IS NULL, match_level"))
+    levels = [dict(r) for r in rows]
+    total_n = sum(r["n"] for r in levels)
+    total_amt = sum(r["amount"] for r in levels)
+    certain = sum(r["amount"] for r in levels if r["confidence"] == "certain")
+    return {
+        "levels": levels,
+        "settlements": total_n,
+        "amount": total_amt,
+        "amount_certain": certain,
+        "amount_not_certain": total_amt - certain,
+        "pct_certain": round(100.0 * certain / total_amt, 1) if total_amt else 0.0,
+        "note": ("levels 1-2 are exact ids, 3 is strong, 4 is a heuristic and 5 is a "
+                 "human's word. a heuristic match is a guess we are willing to show "
+                 "you, not a fact."),
+    }
+
+
+def list_settlements(con, limit: int = 100) -> list[dict]:
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM settlements ORDER BY settled_at DESC LIMIT ?", (limit,))]
+
+
+def unmatched_settlements(con) -> list[dict]:
+    """Money we saw arrive and could not attribute. An operator has to see these."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM settlements WHERE obligation_id IS NULL ORDER BY settled_at DESC")]
+
 
 
 # -- reads ----------------------------------------------------------------
