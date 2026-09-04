@@ -14,10 +14,11 @@ from fastapi.responses import FileResponse, JSONResponse
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="RazorRecovery")
 
-from app.api import chaos, dashboard, replay  # noqa: E402
+from app.api import chaos, dashboard, replay, webhooks  # noqa: E402
 app.include_router(dashboard.router)
 app.include_router(replay.router)
 app.include_router(chaos.router)
+app.include_router(webhooks.router)
 
 
 def _results() -> dict:

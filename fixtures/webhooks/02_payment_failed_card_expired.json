@@ -1,0 +1,37 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "payment.failed",
+  "contains": ["payment"],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_TEST0000000002",
+        "entity": "payment",
+        "amount": 1250000,
+        "currency": "INR",
+        "status": "failed",
+        "order_id": "order_TEST000000002",
+        "invoice_id": null,
+        "international": false,
+        "method": "card",
+        "amount_refunded": 0,
+        "captured": false,
+        "description": "Annual licence renewal",
+        "card_id": "card_TEST00000002",
+        "email": "renewal@example.com",
+        "contact": "+919000000002",
+        "customer_id": "cust_TEST00000002",
+        "notes": {},
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_description": "Card has expired. Please use a different card.",
+        "error_source": "customer",
+        "error_step": "payment_authorization",
+        "error_reason": "card_expired",
+        "created_at": 1772000100
+      }
+    }
+  },
+  "created_at": 1772000101,
+  "id": "evt_TEST0000000002"
+}

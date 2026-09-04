@@ -1,0 +1,34 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "subscription.halted",
+  "contains": ["subscription"],
+  "payload": {
+    "subscription": {
+      "entity": {
+        "id": "sub_TEST000000001",
+        "entity": "subscription",
+        "plan_id": "plan_TEST00000001",
+        "customer_id": "cust_TEST00000003",
+        "status": "halted",
+        "current_start": 1771900000,
+        "current_end": 1774500000,
+        "charge_at": 1774500000,
+        "total_count": 12,
+        "paid_count": 4,
+        "remaining_count": 8,
+        "amount": 899000,
+        "quantity": 1,
+        "notes": {"tier": "team"},
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_description": "The mandate registered for this subscription is no longer valid.",
+        "error_source": "customer",
+        "error_step": "payment_authorization",
+        "error_reason": "invalid_mandate",
+        "created_at": 1772000500
+      }
+    }
+  },
+  "created_at": 1772000501,
+  "id": "evt_TEST0000000004"
+}

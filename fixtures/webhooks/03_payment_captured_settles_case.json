@@ -1,0 +1,39 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "payment.captured",
+  "contains": ["payment"],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_TEST0000000003",
+        "entity": "payment",
+        "amount": 499900,
+        "currency": "INR",
+        "status": "captured",
+        "order_id": "order_TEST000000001",
+        "invoice_id": null,
+        "international": false,
+        "method": "upi",
+        "amount_refunded": 0,
+        "captured": true,
+        "description": "Pro plan - monthly",
+        "vpa": "customer@exampleupi",
+        "email": "customer@example.com",
+        "contact": "+919000000001",
+        "customer_id": "cust_TEST00000001",
+        "notes": {"plan": "pro"},
+        "fee": 11798,
+        "tax": 1800,
+        "error_code": null,
+        "error_description": null,
+        "error_source": null,
+        "error_step": null,
+        "error_reason": null,
+        "created_at": 1772000400
+      }
+    }
+  },
+  "created_at": 1772000401,
+  "id": "evt_TEST0000000003"
+}

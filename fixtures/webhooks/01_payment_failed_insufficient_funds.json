@@ -1,0 +1,42 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "payment.failed",
+  "contains": ["payment"],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_TEST0000000001",
+        "entity": "payment",
+        "amount": 499900,
+        "currency": "INR",
+        "status": "failed",
+        "order_id": "order_TEST000000001",
+        "invoice_id": null,
+        "international": false,
+        "method": "card",
+        "amount_refunded": 0,
+        "captured": false,
+        "description": "Pro plan - monthly",
+        "card_id": "card_TEST00000001",
+        "bank": null,
+        "wallet": null,
+        "vpa": null,
+        "email": "customer@example.com",
+        "contact": "+919000000001",
+        "customer_id": "cust_TEST00000001",
+        "notes": {"plan": "pro"},
+        "fee": null,
+        "tax": null,
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_description": "Your card has insufficient balance to complete this payment.",
+        "error_source": "bank",
+        "error_step": "payment_authorization",
+        "error_reason": "insufficient_funds",
+        "created_at": 1772000000
+      }
+    }
+  },
+  "created_at": 1772000001,
+  "id": "evt_TEST0000000001"
+}

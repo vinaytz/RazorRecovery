@@ -141,12 +141,41 @@ Verified end to end: replay on a sleeping-dog case returns
 ## What YOU build
 
 ```
-P7  app/api/webhooks.py, app/controllers/ingest.py   ← START HERE
-    RazorpayExecutor in app/services/executor.py (the stub is already there)
-    HARD TIMEBOX 45 min. fixtures/webhooks/*.json is an honest fallback.
+P7  DONE — see "P7: the live webhook path" below
 P8  app/services/llm.py — StubLLM FIRST, then GeminiLLM. Wire LLM ①③④ per SPEC §17.
 P9  README.md + the 5-minute video   ← 90 min, frozen, no code. Set an alarm.
 ```
+
+## P7: the live webhook path — DONE, fixture-driven
+
+```
+app/api/webhooks.py          POST /webhooks/razorpay + /replay + /fixtures
+app/controllers/ingest.py    classify, obligation identity, open/close case
+app/services/executor.py     RazorpayExecutor filled in (DRY_RUN default)
+fixtures/webhooks/*.json     5 payloads
+tests/test_webhooks.py       21 tests
+```
+
+**No live tunnel.** This box has no `ngrok`/`cloudflared`, no Razorpay
+credentials, and the pinned `razorpay==1.4.2` SDK is broken on Python 3.12
+(`pkg_resources` was removed in setuptools 81+; needs `pip install setuptools`
+or an SDK bump). So the fixtures are the demo path, which TASKS.md P7 permits.
+**Say this in the README** — the sanctioned wording is that the payload shape is
+what matters, not whether the tunnel held.
+
+The fixtures are hand-built from Razorpay's documented event schema, **not
+captured from a live account.** Field names and nesting are real; the ids are
+`_TEST` placeholders. Do not claim they are live captures.
+
+What is genuinely exercised: HMAC-SHA256 over the raw body, 400 on bad or
+missing signature, `UNIQUE(events.dedupe_key)` absorbing retries, error_reason →
+`FailureClass`, obligation keyed on order/invoice/subscription rather than
+payment id, and success events closing cases + cancelling pending actions.
+
+`RazorpayExecutor.execute` never debits a card. `DRY_RUN=true` returns a
+would-do string; with `DRY_RUN=false` it creates payment links but records
+RETRY as `INTENT_ONLY`. A server-initiated debit from a hackathon build is not
+a reversible action.
 
 If time runs short, **cut P7 and P8 and go straight to P9.** The submission is
 already coherent without them: the chaos tab shows the failure handling, and
