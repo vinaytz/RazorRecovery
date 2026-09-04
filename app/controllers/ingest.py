@@ -24,6 +24,7 @@ from typing import Any
 from app.domain.models import FailureClass
 from app.repos import store
 from app.services import matcher
+from app.workers import sweeper
 
 # Events that mean "the debt is gone". Anything here closes the case.
 # `payment_link.paid` is here because a link we minted can settle without us ever
@@ -37,6 +38,12 @@ SETTLED_EVENTS = frozenset({
 FAILURE_EVENTS = frozenset({
     "payment.failed", "subscription.halted", "invoice.expired",
 })
+
+# `order.created` is not a failure and not a settlement -- it is the START of a
+# window in which a failure can happen by NOTHING happening. It opens no case. It
+# puts the order on a watch list, and `app/workers/sweeper.py` decides later
+# whether the silence meant abandonment. See that module's docstring.
+WATCH_EVENTS = frozenset({"order.created"})
 
 DOWNTIME_EVENTS = frozenset({
     "payment.downtime.started", "payment.downtime.resolved",
@@ -192,6 +199,8 @@ def ingest(con, payload: dict, headers: dict | None = None,
         out.update(_close_settled(con, payload, oid, now))
     elif event in FAILURE_EVENTS:
         out.update(_open_case(con, payload, oid, now, llm))
+    elif event in WATCH_EVENTS:
+        out.update(_watch_checkout(con, payload, oid, now))
     elif event in DOWNTIME_EVENTS:
         out.update({"action": "noted",
                     "verdict": "downtime recorded -- gate G9 blocks RETRY while it holds"})
@@ -245,6 +254,65 @@ def _open_case(con, payload: dict, oid: str, now: datetime, llm=None) -> dict:
             "verdict": f"case opened, classified {fc.value}"}
 
 
+def _watch_checkout(con, payload: dict, oid: str, now: datetime) -> dict:
+    """An order exists and nobody has paid it yet. Start the clock, open nothing.
+
+    This is the quietest handler in the file and it does the most damage if it
+    gets loud. An order that is 200 milliseconds old is not at risk -- the
+    customer is looking at the payment page. Opening a case here would put every
+    successful checkout the merchant has ever had into the recovery funnel.
+    """
+    order = (_entities(payload).get("order") or {}).get("entity", {})
+    pay = _payment_of(payload)
+    amount = amount_of(payload)
+    cust = str(order.get("customer_id") or pay.get("customer_id")
+               or pay.get("contact") or f"cust_{oid}")
+
+    # An order entity carries no `contact`/`email` of its own -- there is no payment
+    # yet, so there is no payer on it. What reachability exists is in `notes`, put
+    # there by the merchant's own checkout integration. Without this the sweeper
+    # opens a case for a customer it has no way to email, which G13 would then
+    # spend a contact slot discovering.
+    notes = pay.get("notes") if isinstance(pay.get("notes"), dict) else {}
+    fresh = store.watch_checkout(
+        con, order_id=oid, customer_id=cust, amount=amount,
+        method=(order.get("method") or pay.get("method") or "unknown"),
+        contact=pay.get("contact") or notes.get("contact"),
+        email=pay.get("email") or notes.get("email"),
+        name=_name_of(payload), receipt=order.get("receipt"),
+        created_at=_order_created_at(order, payload, now), seen_at=now.isoformat())
+
+    window = sweeper.abandon_minutes()
+    return {"action": "checkout_watched" if fresh else "checkout_already_watched",
+            "amount": amount, "abandon_minutes": window,
+            "verdict": (f"order on the watch list -- NO case opened. if no payment "
+                        f"arrives within {window} minutes the sweeper opens one")
+            if fresh else "already watching this order -- the clock is not reset"}
+
+
+def _order_created_at(order: dict, payload: dict, now: datetime) -> str:
+    """When the ORDER was created, not when we heard about it.
+
+    The abandonment window measures the customer's silence, so it has to start when
+    they were last seen -- not when the webhook reached us. Webhooks are retried,
+    queued behind an outage, and replayed by hand; starting the clock at receipt
+    would hand a 40-minute-late delivery a fresh 30 minutes of grace, and the older
+    the delivery the longer the customer waits to hear from us. Razorpay sends
+    `created_at` as Unix epoch SECONDS.
+
+    Falls back to `now` when the payload has no usable timestamp, which is the
+    conservative direction: we wait longer rather than chase sooner.
+    """
+    for src in (order, payload):
+        ts = src.get("created_at")
+        if isinstance(ts, int) and ts > 0:
+            try:
+                return datetime.fromtimestamp(ts).isoformat()
+            except (OverflowError, OSError, ValueError):
+                continue
+    return now.isoformat()
+
+
 def _close_settled(con, payload: dict, oid: str, now: datetime) -> dict:
     """The debt is gone. Work out WHICH debt, close it, cancel pending work.
 
@@ -265,6 +333,16 @@ def _close_settled(con, payload: dict, oid: str, now: datetime) -> dict:
     amount = matcher.amount_of_settlement(payload)
     payment_id = matcher.payment_id_of(payload)
     method = method_of(payload)
+
+    # Take it off the abandonment watch list FIRST, before any matching verdict.
+    # This runs even when the settlement is unmatched, because the ids on a
+    # payment are enough to prove THIS order was paid whether or not we can tell
+    # which debt it closed -- and a paid order left on the watch list becomes an
+    # abandoned-checkout case 30 minutes later. Every id in the payload is
+    # cleared: a link payment carries Razorpay's own order id alongside ours.
+    for cid in matcher.candidate_ids(payload):
+        store.resolve_checkout(con, cid, "PAID", now.isoformat(),
+                               f"paid by {payment_id}")
 
     if not m.matched:
         # Money we saw arrive and cannot attribute. Recorded, not guessed at, and

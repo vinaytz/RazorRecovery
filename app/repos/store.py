@@ -94,6 +94,23 @@ CREATE TABLE IF NOT EXISTS settlements (
   settled_at TEXT, source TEXT);
 CREATE INDEX IF NOT EXISTS ix_settle_ob ON settlements(obligation_id);
 CREATE INDEX IF NOT EXISTS ix_settle_level ON settlements(match_level);
+
+-- Orders that were created and not yet paid. A WATCH LIST, not a ledger.
+--
+-- This table exists because the second source of at-risk revenue is an ABSENCE:
+-- `order.created` arrives, and then no `payment.captured` ever does. There is no
+-- webhook for "the customer closed the tab", so nothing can open a case in
+-- response to an event -- something has to notice that an expected event did not
+-- happen. The sweeper does, `ABANDON_MINUTES` later.
+--
+-- A row here is NOT a debt. Most of these get paid within a minute and are
+-- deleted from consideration by `settle_checkout`. It becomes a debt -- an
+-- obligation and a case -- only if the window closes on it first.
+CREATE TABLE IF NOT EXISTS checkouts (
+  order_id TEXT PRIMARY KEY, customer_id TEXT, amount INTEGER, method TEXT,
+  contact TEXT, email TEXT, name TEXT, receipt TEXT,
+  status TEXT, created_at TEXT, seen_at TEXT, resolved_at TEXT, detail TEXT);
+CREATE INDEX IF NOT EXISTS ix_checkouts_watch ON checkouts(status, created_at);
 """
 
 # Columns added after the first release. sqlite has no "ADD COLUMN IF NOT EXISTS",
@@ -316,6 +333,56 @@ def unmatched_settlements(con) -> list[dict]:
     """Money we saw arrive and could not attribute. An operator has to see these."""
     return [dict(r) for r in con.execute(
         "SELECT * FROM settlements WHERE obligation_id IS NULL ORDER BY settled_at DESC")]
+
+
+# -- checkouts -------------------------------------------------------------
+# The watch list for the absence. See the `checkouts` DDL above.
+
+def watch_checkout(con, *, order_id: str, customer_id: str, amount: int, method: str,
+                   contact: str | None, email: str | None, name: str | None,
+                   receipt: str | None, created_at: str, seen_at: str) -> bool:
+    """Start watching an order. Returns False if we were already watching it.
+
+    INSERT OR IGNORE, so a re-delivered `order.created` does not reset the clock.
+    If it did, an order could be nudged out of the abandonment window forever by
+    Razorpay's own retries.
+    """
+    cur = con.execute(
+        "INSERT OR IGNORE INTO checkouts (order_id, customer_id, amount, method, contact,"
+        " email, name, receipt, status, created_at, seen_at, resolved_at, detail)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (order_id, customer_id, amount, method, contact, email, name, receipt,
+         "WATCHING", created_at, seen_at, None, None))
+    con.commit()
+    return bool(cur.rowcount)
+
+
+def resolve_checkout(con, order_id: str, status: str, when: str, detail: str) -> int:
+    """Stop watching. `status` is PAID or ABANDONED -- both are terminal.
+
+    Only a WATCHING row moves, so a settlement arriving after the sweeper already
+    opened a case cannot rewrite it to PAID: the case closing is what records that,
+    and this row keeps saying the checkout was abandoned, which is what happened.
+    """
+    cur = con.execute(
+        "UPDATE checkouts SET status = ?, resolved_at = ?, detail = ?"
+        " WHERE order_id = ? AND status = 'WATCHING'",
+        (status, when, detail, order_id))
+    con.commit()
+    return cur.rowcount
+
+
+def due_checkouts(con, cutoff: str, limit: int = 200) -> list[dict]:
+    """Orders still unpaid whose window has closed. The sweeper's input."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM checkouts WHERE status = 'WATCHING' AND created_at <= ?"
+        " ORDER BY created_at LIMIT ?", (cutoff, limit))]
+
+
+def checkout_counts(con) -> dict:
+    rows = con.execute("SELECT status, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount"
+                       " FROM checkouts GROUP BY status")
+    return {r["status"]: {"n": r["n"], "amount": r["amount"]} for r in rows}
 
 
 

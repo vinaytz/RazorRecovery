@@ -129,6 +129,22 @@
     <div id="unmatched"></div>
   </div>
   <div class="panel">
+    <h3>Abandoned checkouts</h3>
+    <div class="lede">The second source of at-risk revenue, and the only one with no
+      webhook. Nobody reports closing a tab, so this is an absence: an order was
+      created and the payment never arrived. Watching is not at risk yet — most of it
+      gets paid within the minute. Only the sweeper, <span id="abmin">30</span> minutes
+      later, turns silence into a case.</div>
+    <div class="grid" id="cototals"></div>
+    <div class="row" style="margin-top:16px">
+      <button class="act" onclick="sweep()">Run the sweep</button>
+      <button class="act" onclick="sweep(1)">Sweep with a 1-minute window</button>
+    </div>
+    <table id="cotable"><thead><tr>
+      <th>Order</th><th class="num">Amount</th><th>Created</th>
+      <th>State</th><th>What happened</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="panel">
     <h3>Break it on purpose</h3>
     <div class="lede">Each button injects a real failure and shows what the system did.</div>
     <div class="row" style="margin-top:16px">
@@ -160,7 +176,47 @@ async function boot(){
     || "<option>default</option>";
   loadAll();
 }
-async function loadAll(){ await loadBoard(); loadCases(); loadMatches(); }
+async function loadAll(){ await loadBoard(); loadCases(); loadMatches(); loadCheckouts(); }
+
+const CO = {WATCHING:"", ABANDONED:"warn", PAID:"good"};
+const CLOCK = s => s ? s.replace("T"," ").slice(0,16) : "—";
+
+async function loadCheckouts(){
+  const res = await fetch("/api/checkouts");
+  if(!res.ok) return;
+  const d = await res.json(), c = d.counts || {};
+  const n = k => (c[k]||{}).n || 0, amt = k => (c[k]||{}).amount || 0;
+  $("#abmin").textContent = d.abandon_minutes;
+
+  $("#cototals").innerHTML = [
+    ["Watching", n("WATCHING").toLocaleString(),
+     R(amt("WATCHING"))+" in flight, not at risk yet"],
+    ["Window closed on them", n("ABANDONED").toLocaleString(),
+     R(amt("ABANDONED"))+" became cases"],
+    ["Paid before the window", n("PAID").toLocaleString(),
+     R(amt("PAID"))+" we never contacted"],
+    ["Due for the next sweep", (d.due_now||[]).length.toLocaleString(),
+     "silent longer than "+d.abandon_minutes+" minutes"],
+  ].map(([k,v,note])=>`<div class="cell"><div class="k">${k}</div>
+      <div class="v">${v}</div><div class="n">${note}</div></div>`).join("");
+
+  const rows = [...(d.abandoned||[]), ...(d.watching||[])];
+  $("#cotable tbody").innerHTML = rows.length
+    ? rows.map(o=>`<tr><td>${o.order_id}</td><td class="num">${R(o.amount)}</td>
+        <td>${CLOCK(o.created_at)}</td>
+        <td><span class="pill ${CO[o.status]||""}">${o.status.toLowerCase()}</span></td>
+        <td>${o.detail || "waiting to see if they come back"}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">Nothing on the watch list. Replay
+       <code>08_order_created_then_abandoned.json</code> and an order appears here
+       with no case attached to it.</td></tr>`;
+}
+
+async function sweep(minutes){
+  const q = minutes ? "?minutes="+minutes : "";
+  const r = await (await fetch("/api/sweep"+q, {method:"POST"})).json();
+  $("#chaosout").textContent = JSON.stringify(r, null, 2);
+  loadCheckouts(); loadCases();
+}
 
 const CONF = {certain:"good", strong:"", heuristic:"warn", asserted:"warn",
               ambiguous:"warn", none:"warn"};

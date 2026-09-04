@@ -1,0 +1,32 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "order.created",
+  "contains": ["order"],
+  "_comment": "The start of the ONLY at-risk source with no failure event. This order is created and then nothing happens -- no payment.captured, no payment.failed, no webhook of any kind, because closing a browser tab is not something Razorpay can observe. This payload opens NO case. It puts the order on a watch list, and app/workers/sweeper.py opens a case ABANDON_MINUTES later if the payment never arrived. Note amount_paid 0 and status created: that is the whole signal.",
+  "payload": {
+    "order": {
+      "entity": {
+        "id": "order_TEST000000008",
+        "entity": "order",
+        "amount": 289900,
+        "amount_paid": 0,
+        "amount_due": 289900,
+        "currency": "INR",
+        "receipt": "rcpt_TEST0008",
+        "offer_id": null,
+        "status": "created",
+        "attempts": 0,
+        "customer_id": "cust_TEST00000008",
+        "notes": {
+          "name": "Rohit Sharma",
+          "contact": "+919000000008",
+          "email": "rohit@example.com"
+        },
+        "created_at": 1772103600
+      }
+    }
+  },
+  "created_at": 1772103601,
+  "id": "evt_TEST0000000008"
+}

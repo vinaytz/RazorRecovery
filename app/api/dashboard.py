@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 
 from app.controllers import ingest as ingest_ctl
 from app.repos import store
 from app.services import matcher
+from app.workers import sweeper
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 _con = None
@@ -90,4 +91,37 @@ def settled_out_of_band(case_id: str, amount: int | None = None,
     if not out.get("ok"):
         raise HTTPException(404, out.get("error", "could not settle"))
     return out
+
+
+@router.get("/checkouts")
+def checkouts():
+    """The abandonment watch list. What is being watched, and what it became.
+
+    WATCHING is not at-risk revenue yet -- most of it will be paid in the next
+    minute. Only ABANDONED has become a case.
+    """
+    c = con()
+    window = sweeper.abandon_minutes()
+    cutoff = (datetime.now() - timedelta(minutes=window)).isoformat()
+    return {
+        "abandon_minutes": window,
+        "counts": store.checkout_counts(c),
+        "due_now": store.due_checkouts(c, cutoff),
+        "watching": [dict(r) for r in c.execute(
+            "SELECT * FROM checkouts WHERE status = 'WATCHING' ORDER BY created_at DESC"
+            " LIMIT 50")],
+        "abandoned": [dict(r) for r in c.execute(
+            "SELECT * FROM checkouts WHERE status = 'ABANDONED'"
+            " ORDER BY resolved_at DESC LIMIT 50")],
+        "note": ("an abandoned checkout is an ABSENCE, not an event -- there is no "
+                 "webhook for closing a tab, so the sweeper looks for the payment "
+                 "that never arrived"),
+    }
+
+
+@router.post("/sweep")
+def sweep_now(minutes: int | None = None):
+    """Run the abandonment sweep. The worker calls this on a timer; the demo calls
+    it by hand with a shorter `minutes` so a filmed run does not take half an hour."""
+    return sweeper.sweep(con(), datetime.now(), minutes=minutes)
 
