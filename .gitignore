@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .env
 *.db
+*.db-shm
+*.db-wal
 .llm_cache/
 results*.json
 .venv/
