@@ -72,12 +72,27 @@ ERROR_REASON_MAP: dict[str, FailureClass] = {
 }
 
 
-def classify(payload: dict) -> FailureClass:
-    """Razorpay error fields -> FailureClass. Never raises, never guesses wildly."""
+def classify(payload: dict, llm=None) -> FailureClass:
+    """Razorpay error fields -> FailureClass. Never raises, never guesses wildly.
+
+    Order matters and is deliberate: the deterministic `error_reason` map runs
+    FIRST and wins. The LLM (job (1), SPEC 17) only ever sees the free-text
+    `error_description` of a failure the map could not name. So the model cannot
+    overrule a known code, and with `llm=None` this function behaves exactly as
+    it did before P8 -- which is what keeps the benchmark reproducible.
+    """
     pay = _payment_of(payload)
     reason = (pay.get("error_reason") or "").strip().lower()
     if reason in ERROR_REASON_MAP:
         return ERROR_REASON_MAP[reason]
+
+    # The long tail: free text, issuer-specific wording, no matching code.
+    if llm is not None:
+        desc = (pay.get("error_description") or "").strip()
+        if desc:
+            fc = llm.classify_error(desc)
+            if fc != FailureClass.UNKNOWN:
+                return fc
 
     step = (pay.get("error_step") or "").strip().lower()
     src = (pay.get("error_source") or "").strip().lower()
@@ -143,7 +158,7 @@ def method_of(payload: dict) -> str:
 
 
 def ingest(con, payload: dict, headers: dict | None = None,
-           now: datetime | None = None) -> dict:
+           now: datetime | None = None, llm=None) -> dict:
     """Insert the event, then apply it. Idempotent by dedupe_key.
 
     Returns a verdict dict -- this is what the demo prints.
@@ -171,7 +186,7 @@ def ingest(con, payload: dict, headers: dict | None = None,
     if event in SETTLED_EVENTS:
         out.update(_close_settled(con, oid, now))
     elif event in FAILURE_EVENTS:
-        out.update(_open_case(con, payload, oid, now))
+        out.update(_open_case(con, payload, oid, now, llm))
     elif event in DOWNTIME_EVENTS:
         out.update({"action": "noted",
                     "verdict": "downtime recorded -- gate G9 blocks RETRY while it holds"})
@@ -181,9 +196,9 @@ def ingest(con, payload: dict, headers: dict | None = None,
     return out
 
 
-def _open_case(con, payload: dict, oid: str, now: datetime) -> dict:
+def _open_case(con, payload: dict, oid: str, now: datetime, llm=None) -> dict:
     """A failure arrived. Create the obligation and the ENGINE case if new."""
-    fc = classify(payload)
+    fc = classify(payload, llm)
     amount = amount_of(payload)
     pay = _payment_of(payload)
     cust = str(pay.get("customer_id") or pay.get("contact") or "cust_live")

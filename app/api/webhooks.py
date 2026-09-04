@@ -28,6 +28,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.controllers import ingest as ingest_ctl
 from app.repos import store
+from app.services import llm as llm_svc
 
 router = APIRouter(tags=["webhooks"])
 
@@ -38,6 +39,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "webhooks"
 SECRET_ENV = "RAZORPAY_WEBHOOK_SECRET"
 
 _con = None
+_llm = None
 
 
 def con():
@@ -46,6 +48,14 @@ def con():
         _con = store.connect()
         store.init(_con)
     return _con
+
+
+def llm():
+    """LLM job (1). Only classifies error text the deterministic map missed."""
+    global _llm
+    if _llm is None:
+        _llm = llm_svc.get_llm()
+    return _llm
 
 
 def secret() -> str | None:
@@ -85,12 +95,29 @@ async def razorpay_webhook(request: Request):
     if not isinstance(payload, dict):
         raise HTTPException(400, "body is not a JSON object")
 
-    result = ingest_ctl.ingest(con(), payload, dict(request.headers))
+    result = ingest_ctl.ingest(con(), payload, dict(request.headers), llm=llm())
     result["signature_verified"] = verified
+    result["llm_mode"] = getattr(llm(), "mode", "none")
     if not verified:
         result["warning"] = (f"{SECRET_ENV} not set -- signature NOT checked. "
                              "Never run this way in production.")
     return result
+
+
+@router.get("/api/llm")
+def llm_state():
+    """What the classifier is, and how few calls it makes."""
+    m = llm()
+    return {
+        "mode": getattr(m, "mode", "none"),
+        "live": getattr(m, "live", True),
+        "calls": getattr(m, "calls", 0),
+        "errors": getattr(m, "errors", 0),
+        "cache": m.cache.stats if hasattr(m, "cache") else {},
+        "contract": "returns a FailureClass enum member or UNKNOWN. never a money action.",
+        "note": ("deterministic error_reason map runs first and wins; the model only "
+                 "sees free text the map could not classify"),
+    }
 
 
 @router.get("/webhooks/fixtures")
@@ -125,7 +152,8 @@ async def replay_fixture(name: str | None = None):
         sig = expected_signature(raw, key)          # sign locally, then verify
         ok = verify(raw, sig, key)
         payload = json.loads(raw)
-        res = ingest_ctl.ingest(con(), payload, {"x-razorpay-signature": sig})
+        res = ingest_ctl.ingest(con(), payload, {"x-razorpay-signature": sig},
+                                llm=llm())
         res["fixture"] = p.name
         res["signature_verified"] = ok
         out.append(res)
