@@ -244,6 +244,71 @@ def test_no_llm_at_a_high_tier_says_so_in_the_tier():
     assert msg.tier == "fresh_llm->static"    # visible downgrade, not a silent one
 
 
+# -- COPY QUALITY ----------------------------------------------------------
+# Small things, but they are the whole email a customer actually sees. Copy that
+# reads as machine-assembled undoes the point of paying for a model at all.
+
+@pytest.mark.parametrize("action", list(N.SUBJECT))
+@pytest.mark.parametrize("amount", [40_000, 300_000, 1_250_000])
+def test_the_footer_appears_exactly_once(action, amount):
+    """Every tier, every contact action. The footer owns the already-paid
+    acknowledgement and the opt-out line, so the template must not carry its own."""
+    msg = N.compose(FailureClass.INSUFFICIENT_FUNDS, action, amount, llm=StubLLM())
+    _, body = N.render(msg, name=NAME, amount=amount, merchant="ExampleMart",
+                       link="https://rzp.io/l/abc", action=action)
+    assert body.lower().count("already paid") == 1
+    assert body.lower().count("reply stop") == 1
+
+
+def test_a_model_that_writes_its_own_footer_does_not_get_it_twice():
+    """The prompt says not to. This is what happens when it does anyway."""
+    class Rogue:
+        mode = "rogue"
+        def classify_error(self, t): return FailureClass.UNKNOWN
+        def write_recovery_email(self, **kw):
+            return {"subject": "Payment issue",
+                    "body": ("Hello {{NAME}},\n\nYour {{AMOUNT}} payment to "
+                             "{{MERCHANT}} failed. Pay here: {{LINK}}\n\nIf you have "
+                             "already paid, please ignore this.\n"
+                             "Reply STOP to unsubscribe.")}
+
+    msg = N.compose(FailureClass.CARD_EXPIRED, ActionType.PAY_LINK, 2_000_000, llm=Rogue())
+    assert msg.body.lower().count("already paid") == 1
+    assert msg.body.lower().count("reply stop") == 1
+    assert "unsubscribe" not in msg.body.lower()      # ours, not theirs
+    assert "\n\n\n" not in msg.body                   # no hole where it was
+
+
+def test_the_subject_matches_what_we_are_asking_for():
+    """A PAY_LINK titled "is pending" asks nothing. The stub returns an empty
+    subject on purpose so the per-action line is used."""
+    for action, expected in [(ActionType.PAY_LINK, "Complete your"),
+                             (ActionType.REMIND, "is pending"),
+                             (ActionType.METHOD_CHANGE, "another payment method")]:
+        msg = N.compose(FailureClass.INSUFFICIENT_FUNDS, action, 1_250_000, llm=StubLLM())
+        subject, _ = N.render(msg, name=NAME, amount=1_250_000, merchant="ExampleMart",
+                              link="https://rzp.io/l/abc", action=action)
+        assert expected in subject, f"{action.value}: {subject!r}"
+
+
+def test_an_unclassified_failure_says_nothing_rather_than_unknown():
+    """"(unknown)" is not a reason a customer can act on."""
+    msg = N.compose(FailureClass.UNKNOWN, ActionType.PAY_LINK, 1_250_000, llm=StubLLM())
+    assert "unknown" not in msg.body.lower()
+    assert "did not go through." in msg.body
+
+
+def test_customer_copy_is_written_in_the_second_person():
+    """ACTION_ASK describes the customer TO the model, so it says "they". Anything
+    written FOR the customer has to say "you"."""
+    for action in (ActionType.REMIND, ActionType.PAY_LINK, ActionType.METHOD_CHANGE):
+        msg = N.compose(FailureClass.INSUFFICIENT_FUNDS, action, 300_000, llm=StubLLM())
+        _, body = N.render(msg, name=NAME, amount=300_000, merchant="ExampleMart",
+                           link="https://rzp.io/l/abc", action=action)
+        for third in (" they ", " their ", " them "):
+            assert third not in body.lower(), f"{action.value}: {body!r}"
+
+
 # -- SENDING ---------------------------------------------------------------
 
 def test_no_smtp_host_falls_back_to_counter(monkeypatch):

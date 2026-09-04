@@ -191,10 +191,27 @@ def compose(failure_class: FailureClass, action: ActionType, amount: int, *,
         m = static_message(failure_class, action)
         m.tier = f"{tier}->static"
         return m
-    if FOOTER.strip().split("\n")[0] not in body:
-        body += FOOTER
+    body = _add_footer(body)
     return Message(subject=subject, body=body, tier=tier, used_llm=True,
                    cached=bool(out.get("cached")))
+
+
+# The footer owns the already-paid acknowledgement and the opt-out line, and the
+# prompt tells the model not to write either. A model that ignores that gets its
+# version dropped rather than printed alongside ours -- an email that says "if you
+# have already paid" twice reads like it was assembled by a machine, which is
+# exactly the impression a recovery notice cannot afford.
+_ALREADY_PAID = re.compile(
+    r"[^.\n]*\b(?:if|should)\s+you(?:'ve| have)?\s+(?:already\s+)?"
+    r"(?:paid|made|settled|completed)[^.\n]*\.?", re.I)
+_OPT_OUT = re.compile(r"[^.\n]*\b(?:reply|text)\s+STOP\b[^.\n]*\.?", re.I)
+
+
+def _add_footer(body: str) -> str:
+    """Strip the model's own footer sentences, then append ours exactly once."""
+    body = _OPT_OUT.sub("", _ALREADY_PAID.sub("", body))
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()   # tidy the gaps left behind
+    return body + FOOTER
 
 
 # A model that returns a URL, a phone number or an email address is a model

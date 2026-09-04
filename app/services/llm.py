@@ -112,6 +112,16 @@ ACTION_ASK = {
     "METHOD_CHANGE": "complete the payment using a different card or UPI",
 }
 
+# The same three asks in the second person. ACTION_ASK describes the customer TO
+# the model, so it says "they"; anything written FOR the customer has to say "you".
+# Reusing one map for both is how an email ends up telling somebody they can pay
+# "using the method they already tried".
+STUB_ASK = {
+    "REMIND": "complete it with the same method you tried before",
+    "PAY_LINK": "complete it securely here",
+    "METHOD_CHANGE": "complete it with another card or UPI",
+}
+
 EMAIL_PROMPT = """Write a short recovery email for a failed payment.
 
 Reply with JSON only: {{"subject": "...", "body": "..."}}
@@ -131,7 +141,8 @@ Context:
 Rules:
 - Under 90 words. Plain, calm, no urgency tactics, no guilt, no deadlines.
 - Say what happened, then what they can do. One ask, not two.
-- Acknowledge they may have already paid.
+- Do NOT write "if you have already paid" or an opt-out line. Both are appended
+  verbatim after your text -- writing your own version prints it twice.
 - No emoji, no exclamation marks, no ALL CAPS.
 - Body must contain {{{{NAME}}}}, {{{{AMOUNT}}}} and {{{{MERCHANT}}}}.
 {extra}"""
@@ -166,8 +177,7 @@ def message_cache_key(failure_class: str, action: str, language: str) -> str:
 STUB_EMAIL_BODY = (
     "Hello {{NAME}},\n\n"
     "Your payment of {{AMOUNT}} to {{MERCHANT}} did not go through. "
-    "You can complete it here: {{LINK}}\n\n"
-    "If you have already paid, please ignore this message."
+    "You can complete it here: {{LINK}}"
 )
 
 
@@ -291,16 +301,24 @@ class StubLLM:
 
         It still goes through the same placeholder contract as the live model, so
         the hydration path and the PII guarantee are exercised identically.
+
+        Two things it deliberately leaves to the caller. The subject is empty so the
+        notifier's per-action line is used -- a PAY_LINK asking someone to complete a
+        payment should not be titled "is pending". And there is no "if you have
+        already paid" sentence: the footer appends one, and a template that carries
+        its own prints it twice.
         """
         self.emails += 1
-        ask = ACTION_ASK.get(action, "complete the payment")
+        ask = STUB_ASK.get(action, "complete it")
+        # "(unknown)" is not a reason a customer can act on, so an unclassified
+        # failure says nothing rather than saying that.
+        why = ("" if failure_class.upper() in ("", "UNKNOWN")
+               else f" ({failure_class.lower().replace('_', ' ')})")
         return {
-            "subject": "Your {{MERCHANT}} payment of {{AMOUNT}} is pending",
+            "subject": "",
             "body": (f"Hello {{{{NAME}}}},\n\n"
                      f"Your payment of {{{{AMOUNT}}}} to {{{{MERCHANT}}}} did not go "
-                     f"through ({failure_class.lower().replace('_', ' ')}). "
-                     f"You can {ask}: {{{{LINK}}}}\n\n"
-                     f"If you have already paid, please ignore this message."),
+                     f"through{why}. You can {ask}: {{{{LINK}}}}"),
             "cached": False,
             "source": "stub",
         }
