@@ -26,6 +26,11 @@ PYTHONPATH=. python run_benchmark.py --n 2000     # the experiment
 PYTHONPATH=. python main.py                       # dashboard -> localhost:8000
 ```
 
+In the default `DRY_RUN` build no message leaves the process, so `contacts_sent` is
+0 and settlements attribute as `SELF_RECOVERED`. Attribution declines to claim
+causality for an email that was never sent. Set `DRY_RUN=false` with SMTP
+credentials to see live recovery.
+
 ---
 
 ## AI is used in 4 places. It decides in 0.

@@ -1,0 +1,70 @@
+BEFORE-SHOT FOR ITEM 3a -- the engine spends a rung on an impossible RETRY
+============================================================================
+captured 2026-09-05 05:12 local, at commit c3b9294
+reproduce with: PYTHONPATH=. python scripts/capture_pre_3a.py
+
+G8_NON_RETRYABLE today only blocks retries the FAILURE CLASS rules out.
+It does not ask whether we hold an instrument to charge in the first place.
+Item 3a adds that: if not snap.is_mandate and snap.kind == ORDER, block RETRY
+with NO_MANDATE_TO_RETRY. The only lever on a one-time order is PAY_LINK.
+
+============================================================================
+
+WHAT THE ENGINE IS LOOKING AT
+  case            live_order_PRE3A
+  kind            ORDER
+  is_mandate      False
+  failure_class   INSUFFICIENT_FUNDS
+  amount          1250000 paise
+
+  A one-time order and no mandate. We hold no instrument, so there is
+  nothing on file to charge. RETRY is not a lever here -- it is a no-op
+  the ladder has to climb past.
+
+WHAT THE GATES SAY
+  G0_HOLDOUT          pass  arm=ENGINE
+  G1_SETTLED          pass  remaining=1250000
+  G2_PROMISED         pass  
+  G3_RISK             pass  
+  G4_OPTED_OUT        pass  
+  G5_WINDOW           pass  age=6.8h
+  G6_RETRY_BUDGET     pass  attempts=1
+  G7_LADDER_TOP       pass  rung=0
+  G8_NON_RETRYABLE    pass     <-- passes. nothing here knows RETRY is impossible.
+  G9_DOWNTIME         pass  
+  G10_MANDATE_NOTICE  pass  not a mandate
+  G11_AFA             pass  not a mandate
+  G12_QUIET_HOURS     pass  
+  G13_CONTACT_CAP     pass  contacts_7d=0
+  G14_DUPLICATE       pass  
+
+  -> the engine chooses RETRY. rung 0 -> 1.
+
+WHAT ACTUALLY HAPPENS WHEN IT RUNS
+  RETRY       FAILED    INTENT_ONLY: server-initiated debit not enabled
+
+  rung 1   attempts 1   contacts_sent 0
+
+  The rung was spent. The customer heard nothing. The only thing that
+  moved is the ladder position -- which now sits one rung closer to
+  WRITE_OFF than it did before, having bought nothing.
+
+WHERE THAT STRING SURFACES
+  There is no log line. `app/controllers/execute.py` does not log at all,
+  so a rung burned on an impossible RETRY is silent to an operator today.
+  The string exists in exactly two places:
+
+  1. actions.detail       act_60e172205d77  RETRY  FAILED
+                          'INTENT_ONLY: server-initiated debit not enabled'
+  2. the JSON returned by POST /api/worker/tick, under executed[].detail
+
+  executor.py:481 -- RazorpayExecutor never calls a charge API. See its
+  class docstring: creating a payment link is reversible and rate-limited;
+  a server-initiated debit from a hackathon build is not. So RETRY is
+  recorded as intent and reports honestly that it did nothing. The gap is
+  that the ENGINE does not know that, and pays a rung to find out.
+
+  Two follow-ups fall out of this, and they are separate:
+    - item 3a stops the engine choosing RETRY here at all.
+    - the Ops tab attention list (2a) makes a FAILED action visible to a
+      human, which is the gap that let this go unnoticed in the first place.
