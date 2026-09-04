@@ -205,8 +205,15 @@ def _open_case(con, payload: dict, oid: str, now: datetime, llm=None) -> dict:
 
     con.execute(
         "INSERT OR IGNORE INTO obligations (id, customer_id, amount_due, amount_settled,"
-        " status, opened_at) VALUES (?,?,?,?,?,?)",
-        (oid, cust, amount, 0, "OPEN", now.isoformat()))
+        " status, opened_at, contact, email) VALUES (?,?,?,?,?,?,?,?)",
+        (oid, cust, amount, 0, "OPEN", now.isoformat(),
+         pay.get("contact"), pay.get("email")))
+    # A later attempt on the same obligation is IGNOREd above, so backfill the
+    # reachability we may not have had on the first webhook. COALESCE keeps what we
+    # already know rather than overwriting a good address with a missing one.
+    con.execute(
+        "UPDATE obligations SET contact = COALESCE(contact, ?), email = COALESCE(email, ?)"
+        " WHERE id = ?", (pay.get("contact"), pay.get("email"), oid))
 
     case_id = f"live_{oid}"
     existing = con.execute("SELECT status, attempts FROM cases WHERE case_id = ?",

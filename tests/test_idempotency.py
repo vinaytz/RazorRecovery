@@ -16,7 +16,8 @@ from app.workers.reconciler import reconcile
 def con(tmp_path):
     c = store.connect(tmp_path / "t.db")
     store.init(c)
-    c.execute("INSERT INTO obligations VALUES (?,?,?,?,?,?)",
+    c.execute("INSERT INTO obligations (id, customer_id, amount_due, amount_settled,"
+              " status, opened_at) VALUES (?,?,?,?,?,?)",
               ("ob1", "cust1", 500_000, 0, "OPEN", datetime.now().isoformat()))
     c.commit()
     return c

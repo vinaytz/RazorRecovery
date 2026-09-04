@@ -10,11 +10,13 @@ Holds four things:
   decisions   the full record: snapshot in, trace + candidates + choice out
   events      the live webhook path (P6/P7)
   actions     scheduled work, with a UNIQUE idempotency key
+  payment_links  one live link per (obligation, action) -- see PRIMARY KEY below
 """
 from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,8 +52,27 @@ CREATE TABLE IF NOT EXISTS actions (
 
 CREATE TABLE IF NOT EXISTS obligations (
   id TEXT PRIMARY KEY, customer_id TEXT, amount_due INTEGER,
-  amount_settled INTEGER DEFAULT 0, status TEXT, opened_at TEXT);
+  amount_settled INTEGER DEFAULT 0, status TEXT, opened_at TEXT,
+  contact TEXT, email TEXT);
+
+-- One live payment link per (obligation, action). The composite PRIMARY KEY is
+-- the idempotency, in the same spirit as UNIQUE(actions.idem_key): two decisions
+-- to send a PAY_LINK for the same debt cannot become two links the customer has
+-- to choose between. An expired row is replaced, not duplicated.
+CREATE TABLE IF NOT EXISTS payment_links (
+  obligation_id TEXT NOT NULL, action TEXT NOT NULL,
+  link_id TEXT, short_url TEXT, reference_id TEXT, order_id TEXT,
+  amount INTEGER, status TEXT, expires_at TEXT, created_at TEXT,
+  dry_run INTEGER DEFAULT 0,
+  PRIMARY KEY (obligation_id, action));
 """
+
+# Columns added after the first release. sqlite has no "ADD COLUMN IF NOT EXISTS",
+# and a judge may already have a db on disk from an earlier run, so init() reconciles
+# instead of assuming. Additive only -- nothing is ever dropped or retyped.
+LATE_COLUMNS: dict[str, dict[str, str]] = {
+    "obligations": {"contact": "TEXT", "email": "TEXT"},
+}
 
 
 def connect(path: str | Path = DB_PATH) -> sqlite3.Connection:
@@ -63,6 +84,11 @@ def connect(path: str | Path = DB_PATH) -> sqlite3.Connection:
 
 def init(con: sqlite3.Connection) -> None:
     con.executescript(SCHEMA)
+    for table, cols in LATE_COLUMNS.items():
+        have = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+        for name, decl in cols.items():
+            if name not in have:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
     con.commit()
 
 
@@ -89,6 +115,56 @@ def save_decisions(con, rows: list[tuple]) -> None:
     con.executemany(
         "INSERT OR REPLACE INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit()
+
+
+# -- payment links ---------------------------------------------------------
+# A link is a promise to the customer, so it is state we own, not state we
+# re-derive. Storing it is what lets `create_payment_link` be idempotent without
+# asking Razorpay "did I already do this" on every action.
+
+LINK_DEAD_STATUSES = frozenset({"paid", "cancelled", "expired"})
+
+
+def find_payment_link(con, obligation_id: str, action: str) -> dict | None:
+    r = con.execute(
+        "SELECT * FROM payment_links WHERE obligation_id = ? AND action = ?",
+        (obligation_id, action)).fetchone()
+    return dict(r) if r else None
+
+
+def live_payment_link(con, obligation_id: str, action: str,
+                      now: datetime) -> dict | None:
+    """The reusable link, or None. Dead status or past expiry both mean None."""
+    row = find_payment_link(con, obligation_id, action)
+    if not row:
+        return None
+    if (row.get("status") or "").lower() in LINK_DEAD_STATUSES:
+        return None
+    exp = row.get("expires_at")
+    if exp and datetime.fromisoformat(exp) <= now:
+        return None
+    return row
+
+
+def save_payment_link(con, obligation_id: str, action: str, *, link_id: str | None,
+                      short_url: str | None, reference_id: str, order_id: str | None,
+                      amount: int, status: str, expires_at: str | None,
+                      created_at: str, dry_run: bool) -> None:
+    con.execute(
+        "INSERT OR REPLACE INTO payment_links (obligation_id, action, link_id,"
+        " short_url, reference_id, order_id, amount, status, expires_at, created_at,"
+        " dry_run) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (obligation_id, action, link_id, short_url, reference_id, order_id, amount,
+         status, expires_at, created_at, 1 if dry_run else 0))
+    con.commit()
+
+
+def mark_payment_link(con, obligation_id: str, status: str) -> int:
+    """Settlement or cancellation kills every link on the debt, not just one action."""
+    cur = con.execute("UPDATE payment_links SET status = ? WHERE obligation_id = ?",
+                      (status, obligation_id))
+    con.commit()
+    return cur.rowcount
 
 
 # -- reads ----------------------------------------------------------------

@@ -47,7 +47,11 @@ def _seed_case(settled: bool = False) -> tuple[str, str]:
     c = con()
     oid = f"ob_demo_{uuid.uuid4().hex[:8]}"
     cid = f"case_demo_{uuid.uuid4().hex[:8]}"
-    c.execute("INSERT INTO obligations VALUES (?,?,?,?,?,?)",
+    # Columns named explicitly: `obligations` grew `contact`/`email` in Task 1 and a
+    # positional VALUES(...) silently becomes a column-count error the moment a
+    # schema gains a field.
+    c.execute("INSERT INTO obligations (id, customer_id, amount_due, amount_settled,"
+              " status, opened_at) VALUES (?,?,?,?,?,?)",
               (oid, "cust_demo", 500_000, 500_000 if settled else 0,
                "SETTLED" if settled else "OPEN", datetime.now().isoformat()))
     c.commit()
