@@ -50,7 +50,8 @@ def run(con, action_row, executor) -> dict:
     _set(con, aid, "IN_FLIGHT", None)
 
     try:
-        res = executor.execute(atype.value, obligation_id, action_row["idem_key"])
+        res = executor.execute(atype.value, obligation_id, action_row["idem_key"],
+                               case_id=action_row["case_id"])
     except ExecutorTimeout as e:
         # 3. never guess.
         _set(con, aid, "UNKNOWN", str(e))
@@ -58,9 +59,17 @@ def run(con, action_row, executor) -> dict:
                 "contact_sent": atype in CONTACT_ACTIONS,
                 "note": "state unknown -- reconciler will resolve, no assumption made"}
 
+    # CORRECTNESS: ask the executor whether a human was actually reached, and only
+    # fall back to "is this a contact action" when it does not say. On the live path
+    # a payment link can be minted and the email still fail -- counting that as a
+    # contact would spend the customer's 7-day cap (gate G13) on a message nobody
+    # received, silencing us for a week over an SMTP outage.
+    sent = res.contact_sent if getattr(res, "contact_sent", None) is not None \
+        else atype in CONTACT_ACTIONS
+
     _set(con, aid, "DONE" if res.ok else "FAILED", res.detail)
     return {"action_id": aid, "status": "DONE" if res.ok else "FAILED",
-            "reason": res.detail, "contact_sent": atype in CONTACT_ACTIONS}
+            "reason": res.detail, "contact_sent": sent}
 
 
 def due_actions(con, now: datetime | None = None) -> list:

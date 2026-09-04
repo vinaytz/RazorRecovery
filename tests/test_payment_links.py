@@ -266,11 +266,49 @@ def test_build_executor_defaults_to_dry_run(monkeypatch, con):
 # -- the port still works --------------------------------------------------
 
 def test_execute_routes_link_actions_through_create_payment_link(con):
+    """Every contact action mints its own link and then sends it."""
+    from app.services.notifier import CounterNotifier
+
     client = FakeClient()
+    notifier = CounterNotifier()
     ex = live(con, client)
+    ex.notifier = notifier
+
     for action in ("REMIND", "PAY_LINK", "METHOD_CHANGE"):
-        assert ex.execute(action, "order_MerchantABC123", f"idem_{action}").ok
+        res = ex.execute(action, "order_MerchantABC123", f"idem_{action}")
+        assert res.ok, res.detail
+        assert res.contact_sent is True
     assert len(client.payloads) == 3
+    assert notifier.count == 3
+    # The link the customer receives is the one we minted, in the body.
+    assert "rzp.io" in notifier.sent[0]["body"]
+
+
+def test_a_link_with_nowhere_to_send_it_is_a_failure_not_a_success(con):
+    """A minted link nobody received is not a recovery attempt.
+
+    Live, with no notifier configured: the link exists but the customer does not
+    know about it. Reporting `ok` here would log a contact that never happened and
+    burn the customer's 7-day cap (G13) on silence.
+    """
+    client = FakeClient()
+    res = live(con, client).execute("REMIND", "order_MerchantABC123", "idem_x")
+    assert res.ok is False
+    assert res.contact_sent is False
+    assert "NO_NOTIFIER_CONFIGURED" in res.detail
+    assert len(client.payloads) == 1        # the link was still minted, not lost
+
+
+def test_dry_run_mints_nothing_and_sends_nothing(con):
+    from app.services.notifier import CounterNotifier
+
+    notifier = CounterNotifier()
+    ex = live(con, FakeClient(), dry_run=True)
+    ex.notifier = notifier
+    res = ex.execute("PAY_LINK", "order_MerchantABC123", "idem_dry")
+    assert res.ok is True and res.contact_sent is False
+    assert notifier.count == 0              # DRY_RUN=true is the default for a reason
+    assert "nothing sent" in res.detail
 
 
 def test_execute_never_debits_on_retry(con):

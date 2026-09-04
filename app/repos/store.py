@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS actions (
 CREATE TABLE IF NOT EXISTS obligations (
   id TEXT PRIMARY KEY, customer_id TEXT, amount_due INTEGER,
   amount_settled INTEGER DEFAULT 0, status TEXT, opened_at TEXT,
-  contact TEXT, email TEXT);
+  contact TEXT, email TEXT, name TEXT);
 
 -- One live payment link per (obligation, action). The composite PRIMARY KEY is
 -- the idempotency, in the same spirit as UNIQUE(actions.idem_key): two decisions
@@ -65,13 +65,23 @@ CREATE TABLE IF NOT EXISTS payment_links (
   amount INTEGER, status TEXT, expires_at TEXT, created_at TEXT,
   dry_run INTEGER DEFAULT 0,
   PRIMARY KEY (obligation_id, action));
+
+-- Every contact we actually made. This is not a log line -- gate G13 reads it
+-- (`contacts_last_7d`) and the contact budget is spent from it, so a row here is
+-- a real constraint on future decisions. `ok = 0` rows are kept deliberately: a
+-- failed send is a fact an operator needs, and it must NOT count against the cap.
+CREATE TABLE IF NOT EXISTS contacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id TEXT, obligation_id TEXT,
+  case_id TEXT, channel TEXT, action TEXT, tier TEXT, used_llm INTEGER DEFAULT 0,
+  subject TEXT, sent_at TEXT, ok INTEGER DEFAULT 0, detail TEXT);
+CREATE INDEX IF NOT EXISTS ix_contacts_cust ON contacts(customer_id, sent_at);
 """
 
 # Columns added after the first release. sqlite has no "ADD COLUMN IF NOT EXISTS",
 # and a judge may already have a db on disk from an earlier run, so init() reconciles
 # instead of assuming. Additive only -- nothing is ever dropped or retyped.
 LATE_COLUMNS: dict[str, dict[str, str]] = {
-    "obligations": {"contact": "TEXT", "email": "TEXT"},
+    "obligations": {"contact": "TEXT", "email": "TEXT", "name": "TEXT"},
 }
 
 
@@ -165,6 +175,33 @@ def mark_payment_link(con, obligation_id: str, status: str) -> int:
                       (status, obligation_id))
     con.commit()
     return cur.rowcount
+
+
+# -- contacts --------------------------------------------------------------
+# The contact ledger is a constraint, not a log. G13 spends from it.
+
+def record_contact(con, *, customer_id: str, obligation_id: str, case_id: str | None,
+                   channel: str, action: str, tier: str, used_llm: bool,
+                   subject: str, sent_at: str, ok: bool, detail: str) -> int:
+    cur = con.execute(
+        "INSERT INTO contacts (customer_id, obligation_id, case_id, channel, action,"
+        " tier, used_llm, subject, sent_at, ok, detail)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (customer_id, obligation_id, case_id, channel, action, tier,
+         1 if used_llm else 0, subject, sent_at, 1 if ok else 0, detail))
+    con.commit()
+    return int(cur.lastrowid or 0)
+
+
+def contacts_last_7d(con, customer_id: str, now: datetime) -> int:
+    """Successful contacts only. A send that failed did not reach anyone, so
+    charging it against the customer's cap would silence us for a week over an
+    SMTP outage."""
+    since = (now - timedelta(days=7)).isoformat()
+    r = con.execute(
+        "SELECT COUNT(*) FROM contacts WHERE customer_id = ? AND ok = 1 AND sent_at >= ?",
+        (customer_id, since)).fetchone()
+    return int(r[0] if r else 0)
 
 
 # -- reads ----------------------------------------------------------------

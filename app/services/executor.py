@@ -24,7 +24,9 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from app.domain.models import ActionType, FailureClass
 from app.repos import store
+from app.services import notifier as notifier_mod
 
 log = logging.getLogger("razorrecovery.executor")
 
@@ -46,6 +48,11 @@ class ExecutorTimeout(Exception):
 class ExecResult:
     ok: bool
     detail: str = ""
+    # Whether a human was ACTUALLY reached. None means "ask the action type", which
+    # is what the benchmark's SandboxExecutor wants. On the live path a link can be
+    # minted and the email still fail, and counting that as a contact would spend
+    # the customer's 7-day cap on a message nobody received.
+    contact_sent: bool | None = None
 
 
 def order_id_of(obligation_id: str) -> str | None:
@@ -104,7 +111,8 @@ class SandboxExecutor:
 
     # -- writes ------------------------------------------------------------
 
-    def execute(self, action_type: str, obligation_id: str, idem_key: str) -> ExecResult:
+    def execute(self, action_type: str, obligation_id: str, idem_key: str,
+                case_id: str | None = None) -> ExecResult:
         self.calls.append(idem_key)
 
         if self.settle_midflight:
@@ -137,13 +145,16 @@ class RazorpayExecutor:
     """
 
     def __init__(self, client, con=None, dry_run: bool = True, clock=None,
-                 window_hours: int = 168, merchant_name: str = "the merchant"):
+                 window_hours: int = 168, merchant_name: str = "the merchant",
+                 notifier=None, llm=None):
         self.client = client            # None means "no credentials" -- stub, never crash.
         self.con = con                  # None means "no store" -- no idempotency, loud log.
         self.dry_run = dry_run          # DRY_RUN=true is the default. Invariant 6.
         self.clock = clock
         self.window_hours = window_hours
         self.merchant_name = merchant_name
+        self.notifier = notifier        # None means "no contact goes out at all".
+        self.llm = llm                  # None means "static templates only".
         self.calls: list[str] = []
 
     def _now(self) -> datetime:
@@ -385,7 +396,55 @@ class RazorpayExecutor:
                 "order_id": payload["notes"]["order_id"] or None,
                 "payload": payload, "mode": mode, "detail": detail}
 
-    def execute(self, action_type: str, obligation_id: str, idem_key: str) -> ExecResult:
+    def send_contact(self, obligation_id: str, action: str, *, link: str | None,
+                     case_id: str | None = None) -> dict:
+        """Compose, hydrate, send, record. The step that reaches a real person.
+
+        Ordering is deliberate: the payment link is minted BEFORE the message is
+        written, because the message contains the link. And the contact is recorded
+        after the send with the send's real outcome, because gate G13 spends the
+        customer's 7-day cap from that table -- an email the mail server refused
+        must not silence us for a week.
+        """
+        now = self._now()
+        row = self._obligation_row(obligation_id)
+        amount = int(row.get("amount_due") or 0) - int(row.get("amount_settled") or 0)
+        fc = _failure_class_of(self.con, obligation_id)
+        act = ActionType(action)
+
+        # PII boundary. `compose` receives a class, a band, an action, a merchant
+        # and a language -- and nothing that identifies a human.
+        msg = notifier_mod.compose(fc, act, amount, merchant=self.merchant_name,
+                                   language="en", llm=self.llm)
+        subject, body = notifier_mod.render(
+            msg, name=row.get("name"), amount=amount, merchant=self.merchant_name,
+            link=link, action=act)
+
+        if self.notifier is None:
+            log.warning("no notifier configured -- %s on %s was NOT sent",
+                        action, obligation_id)
+            return {"ok": False, "sent": False, "detail": "NO_NOTIFIER_CONFIGURED",
+                    "tier": msg.tier, "subject": subject}
+
+        res = self.notifier.send(to=row.get("email"), subject=subject, body=body,
+                                 meta={"obligation_id": obligation_id, "action": action,
+                                       "case_id": case_id, "tier": msg.tier})
+        if self.con is not None:
+            try:
+                store.record_contact(
+                    self.con, customer_id=str(row.get("customer_id") or "unknown"),
+                    obligation_id=obligation_id, case_id=case_id,
+                    channel=res.channel, action=action, tier=msg.tier,
+                    used_llm=msg.used_llm, subject=subject, sent_at=now.isoformat(),
+                    ok=res.ok, detail=res.detail)
+            except Exception as e:                   # noqa: BLE001
+                log.error("contact sent but NOT recorded for %s: %s", obligation_id, e)
+        return {"ok": res.ok, "sent": res.ok, "detail": res.detail, "tier": msg.tier,
+                "subject": subject, "body": body, "used_llm": msg.used_llm,
+                "cached": msg.cached, "channel": res.channel}
+
+    def execute(self, action_type: str, obligation_id: str, idem_key: str,
+                case_id: str | None = None) -> ExecResult:
         self.calls.append(idem_key)
 
         if action_type in LINK_ACTIONS:
@@ -395,17 +454,63 @@ class RazorpayExecutor:
             # nothing.
             r = self.create_payment_link(obligation_id, action=action_type)
             if not r["ok"]:
-                return ExecResult(ok=False, detail=r["detail"])
-            return ExecResult(ok=True, detail=f"{r['detail']} {r['short_url'] or ''}".strip())
+                return ExecResult(ok=False, detail=r["detail"], contact_sent=False)
+
+            if self.dry_run:
+                # Build the message so the copy, the tier and the hydration are all
+                # exercised -- then do not hand it to the notifier.
+                preview = self._preview_contact(obligation_id, action_type, r["short_url"])
+                return ExecResult(
+                    ok=True, contact_sent=False,
+                    detail=f"DRY_RUN: link {r['short_url']} + {preview} (nothing sent)")
+
+            c = self.send_contact(obligation_id, action_type, link=r["short_url"],
+                                  case_id=case_id)
+            detail = f"link {r['short_url']} | {c['tier']} | {c['detail']}"
+            # The link exists either way, so a send failure leaves it reusable on the
+            # next rung. The action is FAILED because the customer was not reached.
+            return ExecResult(ok=c["ok"], detail=detail, contact_sent=c["sent"])
 
         if self.dry_run:
-            return ExecResult(ok=True, detail=f"DRY_RUN: would {action_type} on {obligation_id}")
+            return ExecResult(ok=True, contact_sent=False,
+                              detail=f"DRY_RUN: would {action_type} on {obligation_id}")
 
         if action_type == "RETRY":
             # See the class docstring. We record the intent; we do not debit.
-            return ExecResult(ok=False, detail="INTENT_ONLY: server-initiated debit not enabled")
+            return ExecResult(ok=False, contact_sent=False,
+                              detail="INTENT_ONLY: server-initiated debit not enabled")
 
-        return ExecResult(ok=False, detail=f"{action_type} not executable via API")
+        return ExecResult(ok=False, contact_sent=False,
+                          detail=f"{action_type} not executable via API")
+
+    def _preview_contact(self, obligation_id: str, action: str, link: str | None) -> str:
+        """What DRY_RUN would have written. Logged in full, summarised in the result."""
+        row = self._obligation_row(obligation_id)
+        amount = int(row.get("amount_due") or 0) - int(row.get("amount_settled") or 0)
+        act = ActionType(action)
+        msg = notifier_mod.compose(_failure_class_of(self.con, obligation_id), act,
+                                   amount, merchant=self.merchant_name, llm=self.llm)
+        subject, body = notifier_mod.render(msg, name=row.get("name"), amount=amount,
+                                            merchant=self.merchant_name, link=link,
+                                            action=act)
+        log.info("DRY_RUN email for %s/%s tier=%s to=%s\nSubject: %s\n%s",
+                 obligation_id, action, msg.tier, row.get("email") or "(no address)",
+                 subject, body)
+        return f"email tier={msg.tier} subject={subject!r}"
+
+
+def _failure_class_of(con, obligation_id: str) -> FailureClass:
+    """The case's classification, for message wording only. UNKNOWN is a fine answer."""
+    if con is None:
+        return FailureClass.UNKNOWN
+    try:
+        r = con.execute("SELECT failure_class FROM cases WHERE obligation_id = ?"
+                        " ORDER BY opened_at DESC LIMIT 1", (obligation_id,)).fetchone()
+        if r and r["failure_class"]:
+            return FailureClass(r["failure_class"])
+    except Exception:                                # noqa: BLE001
+        pass
+    return FailureClass.UNKNOWN
 
 
 def _stub_url(reference_id: str) -> str:
@@ -425,13 +530,14 @@ def _env_flag(name: str, default: bool) -> bool:
 
 
 def build_executor(con=None, *, dry_run: bool | None = None, clock=None,
-                   window_hours: int = 168, merchant_name: str | None = None):
+                   window_hours: int = 168, merchant_name: str | None = None,
+                   notifier=None, llm=None):
     """The env-reading factory. Degrades to a stub, loudly, and never raises.
 
-    Three independent things can be missing -- the SDK, the credentials, the intent
-    to go live -- and none of them may take the app down. DRY_RUN defaults to true,
-    so the only way a customer hears from us is if someone sets DRY_RUN=false and
-    supplies real keys.
+    Four independent things can be missing -- the SDK, the Razorpay credentials,
+    the SMTP credentials, the intent to go live -- and none of them may take the
+    app down. DRY_RUN defaults to true, so the only way a customer hears from us
+    is if someone sets DRY_RUN=false and supplies real keys.
     """
     if dry_run is None:
         dry_run = _env_flag("DRY_RUN", True)
@@ -451,9 +557,18 @@ def build_executor(con=None, *, dry_run: bool | None = None, clock=None,
             log.warning("razorpay SDK unavailable (%s: %s) -- STUB mode. Links are fake.",
                         type(e).__name__, e)
 
+    if notifier is None:
+        notifier = notifier_mod.build_notifier()
+    if llm is None:
+        from app.services.llm import get_llm        # noqa: PLC0415  (avoids a cycle)
+        llm = get_llm()
+
     if not dry_run and client is None:
         log.warning("DRY_RUN=false but there is no Razorpay client. Nothing will be sent. "
                     "This is a stub, not a live run.")
-    log.info("RazorpayExecutor: dry_run=%s client=%s", dry_run, "live" if client else "stub")
+    log.info("RazorpayExecutor: dry_run=%s razorpay=%s notifier=%s llm=%s",
+             dry_run, "live" if client else "stub",
+             getattr(notifier, "channel", "?"), getattr(llm, "mode", "?"))
     return RazorpayExecutor(client, con=con, dry_run=dry_run, clock=clock,
-                            window_hours=window_hours, merchant_name=merchant_name)
+                            window_hours=window_hours, merchant_name=merchant_name,
+                            notifier=notifier, llm=llm)
