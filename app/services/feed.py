@@ -381,7 +381,8 @@ def _operator(con, since: str) -> list[dict]:
                 "at": r["created_at"], "kind": "operator", "case_id": None,
                 "title": f"{r['who']} paused {scope}",
                 "detail": (f"{r['reason'] or 'no reason given'} · {r['cancelled']}"
-                           " queued action(s) cancelled · ingestion continues"),
+                           f" queued action{'' if r['cancelled'] == 1 else 's'}"
+                           " cancelled · ingestion continues"),
                 "tone": "stop",
             })
         if (r["lifted_at"] or "") >= since:

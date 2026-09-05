@@ -662,7 +662,7 @@ async function loadMatches(){
   }).join("");
 
   $("#unmatched").innerHTML = (r.unmatched||[]).length
-    ? `<div class="lede" style="margin-top:18px"><b>${r.unmatched.length}</b> settlement(s)
+    ? `<div class="lede" style="margin-top:18px"><b>${r.unmatched.length}</b> settlement${r.unmatched.length===1?"":"s"}
        arrived that we could not attribute to an open debt. Nothing was closed for them —
        they are here so the ledger does not silently drift.</div>
        <table><tbody>${r.unmatched.map(u=>`<tr><td>${u.payment_id}</td>
@@ -1118,7 +1118,7 @@ async function opsPause(scope, value){
     {scope, value, reason: $("#ops_reason").value, who: WHO()}, "#stopnote");
   if(r.ok && !r.body.already)
     $("#stopnote").textContent =
-      `Paused. ${r.body.cancelled} queued action(s) cancelled. ${r.body.note}.`;
+      `Paused. ${r.body.cancelled} queued action${r.body.cancelled===1?"":"s"} cancelled. ${r.body.note}.`;
 }
 const opsResume = id => opsPost("/api/ops/resume", {pause_id: id, who: WHO()}, "#stopnote");
 
