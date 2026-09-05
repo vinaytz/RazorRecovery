@@ -24,12 +24,12 @@ app/services/bandit.py     Beta posteriors, Thompson, EB shrinkage
 app/services/clock.py      RealClock | VirtualClock
 app/config_loader.py       yaml -> frozen Config
 app/metrics.py             bootstrap CI, Wilson, scoreboard, where-we-lost
-sim/world.py               archetypes, HiddenTruth, 4 presets
+sim/world.py               archetypes, HiddenTruth, 6 presets
 sim/runner.py              four-arm harness on a virtual clock
 run_benchmark.py           the experiment
 main.py                    FastAPI entrypoint
 config/default.yaml        every tunable, already chosen
-tests/                     11 passing tests
+tests/                     290 passing tests
 ```
 
 **TASKS.md P0 through P6 are DONE.** Start at P7.
@@ -38,7 +38,7 @@ tests/                     11 passing tests
 
 ```bash
 pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -q                                  # 283 passed
+PYTHONPATH=. pytest tests/ -q                                  # 290 passed
 PYTHONPATH=. python run_benchmark.py --n 2000 --preset default
 PYTHONPATH=. python main.py                                    # localhost:8000
 ```
@@ -129,7 +129,7 @@ than the numerator did.
 **The number went down and the claim got stronger.** Rs 9,66,003 that could
 actually be collected beats Rs 10,02,742 that partly could not.
 
-### What item 3a cost the preset sweep
+### What item 3a cost the preset sweep, and what was added to replace it
 
 `retry_friendly` doubles retry success, and it exists to catch a rigged
 simulator: if we still beat the dumb tool in a world built to favour dumb
@@ -138,36 +138,52 @@ are **identical to `default`** — the gate blocks retries on every non-mandate
 case, so the preset's only lever now moves ~25% of the corpus (subscriptions,
 the ones that hold a mandate) and the two worlds converge.
 
-That is a real loss of test power, stated rather than hidden. `high_organic` and
-`noisy` still discriminate and still carry the anti-rigging argument; the retry
-world no longer does much. Fixing it properly means a preset that varies
-something the engine can still act on, and that is a change to `sim/world.py`
-inputs, which invariant 4 forbids without a decision from you.
+That is a real loss of test power, stated rather than hidden. Two presets were
+**added** to restore it — existing presets were not edited, and every world that
+predates them draws a byte-identical random stream (the effect loop reads the new
+multipliers behind `in p` guards; `tests/test_presets.py` pins that).
+
+`remind_friendly` (REMIND × 2) is the replacement, and it works. After 3a the
+fixed schedule's only surviving lever is REMIND — `baseline_decide` sends RETRY
+and REMIND and nothing else — so REMIND is the one thing that can be made to work
+unusually well and have the BASELINE actually feel it. It lifts baseline 37.7% →
+48.7% while our ceiling share falls 80.7% → 73.4%.
+
+`link_friendly` (PAY_LINK + METHOD_CHANGE × 2) **does not do the job it was asked
+to do, and the table says so.** The intent was "does the dumb schedule nearly
+catch us when its primary lever works well, on a lever 3a can't neutralise". But
+the baseline never sends PAY_LINK or METHOD_CHANGE at all, so the multiplier
+cannot reach it: the baseline column does not move by one paisa. Only the engine
+gains, and our ceiling share goes **up**, 80.7% → 87.9%. It is therefore a
+labelled best-case showcase, not evidence of fairness, and it is reported as
+exactly that in README.md and in the `sim/world.py` preset comment.
 
 If CONTROL ever shows contacts > 0 or actions > 0, stop everything: gate G0 is
 broken and the headline number is fiction.
 
-### All four worlds (`--all-presets`, n=1500) — put this table in the README
+### All six worlds (`--all-presets`, n=1500) — this table is in the README
 
-| preset | control | baseline | engine | oracle | incremental | % of ceiling |
-|---|---|---|---|---|---|---|
-| preset | control | baseline | engine | oracle | incremental | % of ceiling |
-|---|---|---|---|---|---|---|
-| default | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.7% |
-| high_organic | 43.7% | 48.2% | 64.2% | 70.0% | Rs 490,133 | 78.2% |
-| retry_friendly | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.6% |
-| noisy | 25.9% | 37.8% | 55.1% | 67.2% | Rs 734,409 | 70.7% |
+| preset | control | baseline | engine | oracle | incremental | % of ceiling | evidence for |
+|---|---|---|---|---|---|---|---|
+| default | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.7% | the headline |
+| high_organic | 43.7% | 48.2% | 64.2% | 70.0% | Rs 490,133 | 78.2% | **costs us** |
+| remind_friendly | 25.9% | 48.7% | 60.9% | 73.6% | Rs 880,379 | 73.4% | **costs us** |
+| noisy | 25.9% | 37.8% | 55.1% | 67.2% | Rs 734,409 | 70.7% | **costs us** |
+| retry_friendly | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.6% | *nothing any more* |
+| link_friendly | 25.9% | 37.7% | 70.9% | 77.1% | Rs 1,130,883 | 87.9% | *flatters us* |
 
 `high_organic` cuts our edge by a third (Rs 490,133 vs Rs 781,894) and is the only
 world where control alone recovers 43.7% — that one still does its job. `noisy`
 costs us 2 points of engine recovery and 10 points of ceiling share, which is the
-honest answer to "can it still learn when the signal is dirty".
+honest answer to "can it still learn when the signal is dirty". `remind_friendly`
+moves the baseline furthest of anything in the table, which is the point of it.
 
 `retry_friendly` now reads identically to `default` on the first three columns.
 See "What item 3a cost the preset sweep" above: that is a consequence of the
 no-mandate gate, not a copy-paste error, and it means this preset has stopped
-being evidence. **Report all four anyway. Do not tune them away** — including the
-one that no longer discriminates, because hiding it would be the actual dishonesty.
+being evidence. **Report all six anyway. Do not tune them away** — including the
+one that no longer discriminates and the one that flatters us, because hiding
+either would be the actual dishonesty.
 
 ## The dashboard (already working)
 

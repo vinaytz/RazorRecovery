@@ -293,11 +293,23 @@ reversals: at T+30, reverse `reversal_rate` of recoveries → net vs gross
 default          the balanced world
 high_organic     p_self × 1.6   → control recovers a lot, our edge shrinks
 retry_friendly   RETRY effects × 2 → the dumb baseline should nearly tie us
+                 SCOPE REDUCED AT ITEM 3a. G8 blocks RETRY on non-mandate cases,
+                 so this lever now reaches only the ~25% holding a mandate and the
+                 world reads almost identically to `default`. Kept and labelled.
+remind_friendly  REMIND effects × 2 → retry_friendly's successor as the world that
+                 is meant to nearly tie us. REMIND is the fixed schedule's only
+                 surviving lever after 3a, so it is the only lever that can be made
+                 to work well and have the BASELINE actually feel it.
+link_friendly    PAY_LINK + METHOD_CHANGE effects × 2. NOT an anti-rigging control:
+                 `baseline_decide` never sends either action, so the baseline column
+                 does not move and only the engine gains. A labelled best-case.
 noisy            true_p jittered ±40% → can we still learn?
 ```
 
-**Report all four in the README, including the ones where we barely win.** This is
-the single most credible thing in the submission. Do not skip it.
+**Report all six in the README, including the ones where we barely win, the one
+that stopped discriminating, and the one that flatters us.** This is the single
+most credible thing in the submission. Do not skip it, and do not quietly drop a
+row that has gone the wrong way.
 
 ---
 

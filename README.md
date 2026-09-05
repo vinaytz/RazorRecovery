@@ -85,11 +85,11 @@ Two of these are the ones nobody else will have.
 
 | Metric | Engine | Baseline |
 |---|---|---|
-| **False chases per 10k** — contacts sent to people who already paid | **0.0** | 90.0 |
-| Contacts sent | 2,995 | 1,296 |
+| **False chases per 10k** — contacts sent to people who already paid | **0.0** | 145.0 |
+| Contacts sent | 3,205 | 1,570 |
 | Double charges | **0** | — |
-| Left alone on purpose | **1,044 cases, Rs 1,215,971** | 0 |
-| Written off | 912 cases, Rs 1,419,523 | 1,051 |
+| Left alone on purpose | **1,036 cases, Rs 1,192,089** | 0 |
+| Written off | 924 cases, Rs 1,456,262 | 1,206 |
 
 **Zero false chases** is the whole re-check discipline in one number. The
 baseline fires on schedule without re-reading payment state, which is what
@@ -113,14 +113,19 @@ A real decision from the run — `Rs 6,574` at risk, and we deliberately do noth
 ```
 case ENGINE_ob_289    AUTH_ABANDONED    Rs 6,574 due    contacts_last_7d 0
 
-  candidate   RETRY
+  candidate   REMIND
     p_act     0.0428      chance they pay if we act
     p_none    0.0719      chance they pay if we don't
     uplift   -0.0291      ← acting makes it WORSE
-    ev       -Rs 194.15
+    ev       -Rs 199.40
 
   decision  WAIT      stop_reason  EV_NEGATIVE
 ```
+
+REMIND is the only candidate the gates left standing: this is an
+`AUTH_ABANDONED` order with no mandate, so G8 has already blocked RETRY as an
+action with no instrument behind it. Uplift is what kills the one lever that
+remained.
 
 A tool scoring raw success probability sees 4.3% and sends the reminder. Scoring
 uplift against a do-nothing counterfactual is the only way to see the minus sign.
@@ -131,10 +136,10 @@ And the bandit learns the failure-specific action without being told:
 
 ```
 CARD_EXPIRED  ·  learned posterior means
-  METHOD_CHANGE   0.388   n=96     ← correct: the card is dead, change it
+  METHOD_CHANGE   0.352   n=86     ← correct: the card is dead, change it
   NONE            0.293   n=186
-  REMIND          0.156   n=133
-  PAY_LINK        0.117   n=109
+  PAY_LINK        0.157   n=106
+  REMIND          0.127   n=124
 ```
 
 No rule says "expired card → new method". `base_effect[CARD_EXPIRED]
@@ -142,23 +147,56 @@ No rule says "expired card → new method". `base_effect[CARD_EXPIRED]
 
 ---
 
-## All four worlds
+## All six worlds
 
-Run every preset, including the ones where our edge shrinks. n=1500.
+Run every preset, including the ones where our edge shrinks. n=1500, seed 42.
 
-| preset | control | baseline | engine | oracle | incremental | % of ceiling |
-|---|---|---|---|---|---|---|
-| default | 25.9% | 44.3% | 55.4% | 74.5% | Rs 741,674 | 60.7% |
-| high_organic | 43.7% | 57.3% | 64.1% | 78.8% | Rs 487,838 | 58.3% |
-| retry_friendly | 25.9% | 49.4% | 57.9% | 78.1% | Rs 803,102 | 61.3% |
-| noisy | 25.9% | 45.6% | 55.7% | 73.0% | Rs 748,876 | 63.2% |
+| preset | control | baseline | engine | oracle | incremental | % of ceiling | what it is evidence for |
+|---|---|---|---|---|---|---|---|
+| default | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.7% | the headline |
+| high_organic | 43.7% | 48.2% | 64.2% | 70.0% | Rs 490,133 | 78.2% | **costs us** — our edge shrinks by a third |
+| remind_friendly | 25.9% | 48.7% | 60.9% | 73.6% | Rs 880,379 | 73.4% | **costs us** — the dumb tool nearly catches up |
+| noisy | 25.9% | 37.8% | 55.1% | 67.2% | Rs 734,409 | 70.7% | **costs us** — can it learn from dirty signal |
+| retry_friendly | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.6% | *nothing any more* — see below |
+| link_friendly | 25.9% | 37.7% | 70.9% | 77.1% | Rs 1,130,883 | 87.9% | *flatters us* — a labelled best case, not fairness |
 
-`high_organic` cuts our incremental by a third — when customers mostly pay on
-their own, there is less to cause. `retry_friendly` lifts the baseline 5 points,
-because when dumb retries work, the dumb tool catches up.
+Three of these six are built to cost us, and they do.
 
-**We did not tune these away.** A simulator where the engine wins in every world
-is a simulator built to make the engine win.
+`high_organic` cuts our incremental by a third (Rs 490,133 vs Rs 781,894) — when
+customers mostly pay on their own there is less to cause, and it is the only world
+where control alone recovers 43.7%.
+
+`remind_friendly` is the one that answers *"does the dumb fixed schedule nearly
+catch us when its lever works well?"* It lifts BASELINE from 37.7% to 48.7% — 11
+points, the largest baseline move in the table — while our share of the ceiling
+**falls** from 80.7% to 73.4%. A world that costs us is worth more than a world
+that pays us.
+
+`noisy` costs us 2 points of engine recovery and 10 points of ceiling share, which
+is the honest answer to "can it still learn when the signal is dirty".
+
+**`retry_friendly` has stopped discriminating, and we are reporting it anyway.**
+Its control, baseline and engine columns are now byte-identical to `default`.
+Item 3a is why: G8 blocks RETRY on every case with no mandate, so `retry_mult`
+only reaches the ~25% of the corpus that holds one, and the two worlds converge.
+That is a real loss of test power. The row stays, because a preset that lost its
+power and says so is more credible than one quietly deleted — and if a later
+change ever makes retries reachable again, this is the world that will notice.
+`remind_friendly` was added to take over the job it used to do.
+
+**`link_friendly` is a showcase, not evidence.** It doubles PAY_LINK and
+METHOD_CHANGE, which are the engine's two best levers — and which
+`app/domain/policies.py::baseline_decide` **never sends**. The fixed schedule only
+ever emits RETRY and REMIND, so `link_mult` cannot reach the baseline at all: its
+column does not move by one paisa. Only we gain, and our share of the ceiling goes
+*up*, 80.7% → 87.9%. That is the opposite of an anti-rigging control. It is in the
+table because Rs 11.3 lakh is our best case and hiding a best case is its own kind
+of dishonesty — but it is never offered as proof the simulator is fair.
+
+**We did not tune any of these away.** A simulator where the engine wins in every
+world is a simulator built to make the engine win. `tests/test_presets.py` pins the
+directions above, so a future edit cannot quietly re-describe `link_friendly` as
+fairness evidence.
 
 ---
 
@@ -204,11 +242,53 @@ hash and also checks it a second way, differentially: the benchmark is run with
 and the two outputs must be byte-identical. The hash moves only when the decision
 core is deliberately changed — it last moved at item 3a.
 
-This was not free. The arm seeds were originally derived from
-`hash(arm.value)`, and Python salts string hashing per process — so `--seed`
-controlled nothing and every arm silently drew a fresh stream on every run.
-`CONTROL` never moved (it never acts, so it never draws), which is exactly why it
-went unnoticed. Now `ARM_SEED_OFFSET` uses explicit integers.
+This was not free. See below: the seeding was wrong for a while, and nothing
+noticed.
+
+---
+
+## Bugs found in our own measurements
+
+Three of these four were found by unrelated work colliding with them, not by looking
+for them. That is the reason they are written down instead of quietly fixed: a
+measurement layer that has been wrong once is a measurement layer that can be
+wrong again, and a reader deserves to know which parts of it have already failed.
+
+**`--seed` controlled nothing.** Arm seeds were derived from `hash(arm.value)`,
+and Python salts string hashing per process, so every arm silently drew a fresh
+stream on every run. `CONTROL` never moved — it never acts, so it never draws —
+which is exactly why it went unnoticed for as long as it did. Fixed with an
+explicit `ARM_SEED_OFFSET` dict; the byte-for-byte reproducibility above is only
+true because of it.
+
+**`test_quiet_hours_block_contact_only` passed for the wrong reason.** It asserted
+that quiet hours block contact actions and leave RETRY alone. The snapshot it
+built had no mandate, so once item 3a landed, G8 blocked RETRY for its own
+reason — and the test had never been checking quiet hours at all, only that
+*something somewhere* had blocked RETRY. It now builds a mandate case with a
+satisfied pre-debit notice, so quiet hours is the only thing that can produce
+the result it asserts.
+
+**`test_git_says_the_domain_layer_is_untouched` was vacuously true.** Item 1c's
+claim was that a whole new revenue source needed zero changes to `app/domain/`,
+and the test proved it with `git diff app/domain/` against `HEAD`. That passes
+after any later commit that doesn't touch the domain, including commits that had
+nothing to do with 1c — and it would have kept passing if 1c had touched the
+domain and a later commit had reverted it. Now pinned to `366894b^..366894b`,
+1c's own commit, which is the claim it was actually making.
+
+**The sleeping-dog example above had a wrong label and a wrong number.** It quoted
+the candidate as `RETRY` when the recorded candidate was `REMIND`, and an EV of
+`-Rs 194.15` that its own three inputs do not produce
+(`-0.0291 × Rs 6,574.62 − 25 − 800` is `-Rs 199.40`). The probabilities, the
+uplift and the amount all reproduced exactly, which is what made it look checked.
+Found by re-deriving it from `decisions.candidates` rather than re-reading it.
+
+**A test that passes for the wrong reason is worse than no test.** No test is an
+admitted gap. A green test is a claim of coverage, and a false one costs you the
+attention you would otherwise have spent looking. Both of the two tests above were
+found by item 3a changing a gate and making them go red for reasons that had
+nothing to do with the gate — which is to say, by luck.
 
 ---
 
@@ -293,7 +373,7 @@ invoice and subscription state, and never debits a card — see `WHAT_WE_CUT.md`
 ## Tests
 
 ```bash
-PYTHONPATH=. pytest tests/ -q      # 73 passed
+PYTHONPATH=. pytest tests/ -q      # 290 passed
 ```
 
 `test_purity.py` enforces the domain boundary by AST walk. `test_gates.py`

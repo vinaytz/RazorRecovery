@@ -10,8 +10,13 @@ truth the engine has to *learn* from outcomes, exactly as it would in production
 
 The honesty problem: we wrote this world, so of course our engine does well in
 it. Two defences, both required.
-  1. Presets. `retry_friendly` is a world where the dumb baseline nearly ties us.
-     Report it. Do not tune it away.
+  1. Presets. At least one world must be built so the dumb baseline nearly ties
+     us. Report it. Do not tune it away. `remind_friendly` is that world today;
+     `retry_friendly` was, until item 3a blocked retries on non-mandate cases and
+     shrank its reach to the ~25% of cases holding a mandate. Both are kept, and
+     which is doing the work is stated rather than left to be assumed.
+     `link_friendly` is NOT one of these -- it doubles our own best levers and
+     flatters us. It is labelled as such where it is defined.
   2. The engine may only learn through outcomes. If any code path lets it read
      `Truth`, the benchmark is worthless.
 """
@@ -94,10 +99,40 @@ PRESETS: dict[str, dict] = {
     "high_organic":   {"p_self_mult": 1.60, "retry_mult": 1.0, "jitter": 0.15},
     # dumb retries mostly work -> the fixed baseline should nearly tie us.
     # if we still win big here, the simulator is rigged. do not tune this away.
+    #
+    # ITEM 3a REDUCED THIS PRESET'S SCOPE AND IT IS KEPT ANYWAY. G8 now blocks
+    # RETRY on every case with no mandate, so `retry_mult` only reaches the ~25%
+    # that hold one and this world's first three columns now read identically to
+    # `default`. It has largely stopped discriminating. Kept, and said out loud in
+    # README.md, because a preset that lost its power and is documented is more
+    # credible than one quietly deleted -- and because if a later item ever makes
+    # retries reachable again, this is the world that will notice.
     "retry_friendly": {"p_self_mult": 1.00, "retry_mult": 2.0, "jitter": 0.15},
+    # the same question retry_friendly used to ask, on a lever 3a cannot take
+    # away. NOTE WHAT IT ACTUALLY MEASURES, WHICH IS NOT WHAT IT WAS ASKED FOR:
+    # `policies.baseline_decide` only ever sends RETRY and REMIND, so doubling
+    # PAY_LINK and METHOD_CHANGE cannot reach the baseline at all -- its column
+    # is byte-identical to `default`. Only the ENGINE benefits, and our ceiling
+    # share goes UP (80.7% -> 87.9%). So this is not an anti-rigging control; it
+    # is the opposite, a world built out of our own best levers. Reported as
+    # exactly that, and never as evidence the simulator is fair.
+    "link_friendly":  {"p_self_mult": 1.00, "retry_mult": 1.0, "jitter": 0.15,
+                       "link_mult": 2.0},
+    # THIS is the honest successor to retry_friendly. After 3a the fixed
+    # schedule's surviving lever is REMIND, so REMIND is what has to work
+    # unusually well for "does the dumb tool nearly catch us" to mean anything.
+    # It does the job: baseline climbs 37.7% -> 48.7% and our share of the
+    # ceiling falls 80.7% -> 73.4%. A world that costs us is worth more than a
+    # world that pays us.
+    "remind_friendly": {"p_self_mult": 1.00, "retry_mult": 1.0, "jitter": 0.15,
+                        "remind_mult": 2.0},
     # can we still learn when the signal is noisy?
     "noisy":          {"p_self_mult": 1.00, "retry_mult": 1.0, "jitter": 0.40},
 }
+
+# Which actions `link_mult` scales. Named rather than inlined so the preset table
+# and this list cannot drift apart.
+LINK_ACTIONS = (ActionType.PAY_LINK, ActionType.METHOD_CHANGE)
 
 
 # --------------------------------------------------------------------------
@@ -221,6 +256,14 @@ def generate(n: int, seed: int = 42, preset: str = "default", window_hours: int 
             eff = base * c.responsiveness
             if action == ActionType.RETRY:
                 eff *= p["retry_mult"]
+            # Guarded rather than an unconditional `*= p.get("link_mult", 1.0)`:
+            # every preset that predates link_friendly must produce byte-identical
+            # numbers, and not touching the value at all is a stronger guarantee
+            # than trusting float identity on a multiply.
+            if action in LINK_ACTIONS and "link_mult" in p:
+                eff *= p["link_mult"]
+            if action == ActionType.REMIND and "remind_mult" in p:
+                eff *= p["remind_mult"]
             eff *= float(rng.normal(1.0, p["jitter"]))
             if eff >= 0:
                 # a positive effect claims part of the remaining headroom
