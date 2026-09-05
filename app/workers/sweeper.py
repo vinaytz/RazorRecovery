@@ -32,11 +32,11 @@ gone. 30 minutes is well past every UPI collect expiry and 3DS timeout.
 
 WHAT THE ENGINE WILL DO WITH THESE, and why that is right. A checkout
 abandonment is a one-time ORDER with no mandate, so there is no instrument to
-charge and RETRY is meaningless -- the only real lever is PAY_LINK. The gate that
-states this properly is item 3a; today G4 (NON_RETRYABLE) does not fire for
-CHECKOUT_ABANDONED, so the engine can still pick RETRY here and the executor will
-mint a link for it. Noted rather than fixed, because fixing it means touching a
-gate and that belongs in its own item with its own test.
+charge and RETRY is meaningless -- the only real lever is PAY_LINK. Item 3a is
+the gate that states this: G8 now blocks RETRY whenever `is_mandate` is false,
+which covers these. Note it is keyed on the mandate and not on the obligation
+kind -- these cases are opened as kind=CHECKOUT, so a gate written against
+`kind == ORDER` would have missed exactly the case this paragraph is about.
 """
 from __future__ import annotations
 

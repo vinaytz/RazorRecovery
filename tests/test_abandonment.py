@@ -295,17 +295,26 @@ def test_the_domain_layer_did_not_learn_about_checkouts():
 def test_git_says_the_domain_layer_is_untouched():
     """The claim above, checked against the actual diff rather than a grep.
 
+    Pinned to item 1c's own commit, not to HEAD. Against HEAD this asserted only
+    that the working tree had no uncommitted domain changes, which any later commit
+    makes vacuously true -- and item 3a, which does legitimately change a gate, is
+    what exposed that. The claim being made is about what the ABANDONMENT work
+    touched, so it is that commit's diff that has to be empty, forever.
+
     Skips rather than fails when git cannot answer -- a tarball checkout is not a
     test failure -- but on a real clone this is the assertion that counts.
     """
+    ABANDONMENT_COMMIT = "366894b"        # "1c: abandoned checkouts"
     try:
-        out = subprocess.run(["git", "diff", "--stat", "HEAD", "--", "app/domain/"],
-                             cwd=ROOT, capture_output=True, text=True, timeout=10)
+        out = subprocess.run(
+            ["git", "diff", "--stat", f"{ABANDONMENT_COMMIT}^", ABANDONMENT_COMMIT,
+             "--", "app/domain/"],
+            cwd=ROOT, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):    # pragma: no cover
         pytest.skip("git unavailable")
     if out.returncode != 0:                          # pragma: no cover
-        pytest.skip("not a git checkout")
-    assert out.stdout.strip() == "", f"app/domain/ was modified:\n{out.stdout}"
+        pytest.skip("not a git checkout, or the commit is not in this history")
+    assert out.stdout.strip() == "", f"app/domain/ was modified by 1c:\n{out.stdout}"
 
 
 # -- the fixture on disk --------------------------------------------------

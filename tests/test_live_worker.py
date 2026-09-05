@@ -121,22 +121,51 @@ def test_the_clock_itself_is_never_scaled(con, monkeypatch):
 
 # -- the benchmark cannot feel any of this --------------------------------
 
-def test_time_scale_cannot_reach_the_benchmark():
-    """Invariant 3, checked rather than asserted.
+# Invariant 3's tripwire. ONE constant, edited only when an item is explicitly
+# allowed to change the decision core -- item 3a (G8 gained the no-mandate check)
+# and item 3c (the bandit gained time decay). If this moves for any other reason,
+# live-path code has leaked into `app/domain/` and the headline number is fiction.
+BENCHMARK_STDOUT_MD5 = "68c99ce838b892575a1912db8afb1166"
 
-    Run the benchmark with TIME_SCALE and ABANDON_MINUTES set to absurd values. If
-    either could reach the decision core the stdout md5 would move.
-    """
-    expected = "40be5d39fc58c6c3a37d49a0302306c0"
-    import hashlib
+
+def _run_benchmark(**env_overrides) -> str:
     import os
 
-    env = dict(os.environ, PYTHONPATH=".", TIME_SCALE="3600", ABANDON_MINUTES="1",
-               WORKER="off")
+    env = dict(os.environ, PYTHONPATH=".", WORKER="off", **env_overrides)
     r = subprocess.run([sys.executable, "run_benchmark.py", "--n", "2000"],
                        cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr[-2000:]
-    assert hashlib.md5(r.stdout.encode()).hexdigest() == expected
+    return r.stdout
+
+
+def test_time_scale_cannot_reach_the_benchmark():
+    """Invariant 3, checked rather than asserted.
+
+    A differential, not a hardcoded hash. The claim is "these env vars cannot reach
+    the decision core", and the way to check that is to run the benchmark with them
+    set to absurd values and with them absent, and require the two outputs to be
+    byte-identical. Written this way it keeps testing the claim through every
+    legitimate change to the core, instead of having to be re-pinned each time and
+    briefly testing nothing while it is stale.
+    """
+    absurd = _run_benchmark(TIME_SCALE="3600", ABANDON_MINUTES="1")
+    plain = _run_benchmark(TIME_SCALE="1", ABANDON_MINUTES="30")
+    assert absurd == plain, "a live-path env var changed the benchmark output"
+
+
+def test_benchmark_stdout_md5_is_pinned():
+    """The deliberate tripwire: the decision core produces exactly this output.
+
+    Separate from the test above because it fails for a different reason. That one
+    failing means an env var leaked into the core. This one failing means the core
+    itself changed -- which is sometimes correct and always worth a human looking.
+    """
+    import hashlib
+
+    got = hashlib.md5(_run_benchmark().encode()).hexdigest()
+    assert got == BENCHMARK_STDOUT_MD5, (
+        f"benchmark stdout md5 moved: {got} != {BENCHMARK_STDOUT_MD5}. If you did "
+        "not deliberately change app/domain/, STOP -- something reached the core.")
 
 
 def test_the_simulator_does_not_import_the_live_worker():

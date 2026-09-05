@@ -5,12 +5,18 @@ from datetime import datetime, timedelta
 
 from app.config_loader import load_config
 from app.domain.gates import in_quiet_hours, run_gates
+from app.domain.ladder import legal_next_rungs
 from app.domain.models import (
     ActionType, Arm, CaseSnapshot, FailureClass, ObligationKind, StopReason,
 )
 
 CFG = load_config()
 T0 = datetime(2026, 3, 10, 14, 0, 0)      # a Tuesday afternoon: outside quiet hours
+
+
+def _detail(g, gate: str) -> str:
+    """The trace line for one gate, so a test can assert on the reason it gave."""
+    return next((t.detail for t in g.trace if t.gate == gate), "")
 
 
 def snap(**kw) -> CaseSnapshot:
@@ -50,6 +56,45 @@ def test_expired_card_blocks_retry_but_not_method_change():
     assert ActionType.METHOD_CHANGE not in g.blocked_actions
 
 
+def test_no_mandate_blocks_retry_and_the_ladder_starts_at_a_real_lever():
+    """Item 3a. A one-time order holds no instrument, so RETRY cannot reach money.
+
+    Before this gate the engine spent rung 1 on a RETRY the executor reported back
+    as INTENT_ONLY, having contacted nobody -- the before-shot is in
+    docs/evidence/pre_3a_wasted_rung.txt. The rung is the scarce thing here, not
+    the API call.
+    """
+    g = run_gates(snap(is_mandate=False, kind=ObligationKind.ORDER), CFG)
+    assert not g.blocked                       # the case goes on, it just cannot retry
+    assert ActionType.RETRY in g.blocked_actions
+    assert ActionType.PAY_LINK not in g.blocked_actions
+    assert StopReason.NO_MANDATE_TO_RETRY.value in _detail(g, "G8_NON_RETRYABLE")
+
+    # and the ladder climbs past the dead rung rather than stalling on it
+    first = [a for a in legal_next_rungs(snap(), g, CFG) if a != ActionType.WAIT]
+    assert ActionType.RETRY not in first
+
+
+def test_a_mandate_may_still_retry():
+    """The other half. If 3a blocked every retry it would not be a gate, it would
+    be a deletion of the rung."""
+    g = run_gates(snap(is_mandate=True, kind=ObligationKind.SUBSCRIPTION,
+                       last_notice_sent_at=T0 - timedelta(hours=48)), CFG)
+    assert ActionType.RETRY not in g.blocked_actions
+
+
+def test_no_mandate_covers_checkout_and_invoice_not_just_orders():
+    """The gate asks about the mandate, not the kind.
+
+    `app/workers/sweeper.py` opens abandoned checkouts as kind=CHECKOUT, and it was
+    a checkout that had never held an instrument at all. A gate keyed on
+    kind == ORDER would have left exactly that case retrying.
+    """
+    for kind in (ObligationKind.CHECKOUT, ObligationKind.INVOICE, ObligationKind.ORDER):
+        g = run_gates(snap(is_mandate=False, kind=kind), CFG)
+        assert ActionType.RETRY in g.blocked_actions, kind
+
+
 def test_mandate_without_pre_debit_notice_blocks_retry():
     g = run_gates(snap(is_mandate=True, last_notice_sent_at=None), CFG)
     assert ActionType.RETRY in g.blocked_actions
@@ -63,7 +108,12 @@ def test_mandate_above_afa_limit_blocks_retry():
 
 def test_quiet_hours_block_contact_only():
     late = T0.replace(hour=23)
-    g = run_gates(snap(now=late), CFG)
+    # A mandate with its notice already served, because the point of this test is
+    # that quiet hours touch CONTACT actions and leave a debit alone. On a snapshot
+    # with no mandate, G8 blocks RETRY for its own reason and the assertion below
+    # would pass without quiet hours having anything to do with it.
+    g = run_gates(snap(now=late, is_mandate=True,
+                       last_notice_sent_at=late - timedelta(hours=48)), CFG)
     assert ActionType.REMIND in g.blocked_actions
     assert ActionType.RETRY not in g.blocked_actions
     assert g.wait_until is not None and g.wait_until.hour == CFG.quiet_end

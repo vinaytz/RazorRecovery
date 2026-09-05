@@ -1,0 +1,64 @@
+AFTER-SHOT FOR ITEM 3a -- G8 refuses a retry there is no instrument for
+============================================================================
+captured 2026-09-05 08:02 local, at commit c5b91de
+reproduce with: PYTHONPATH=. python scripts/capture_pre_3a.py
+
+G8 now asks two questions, not one: is the instrument usable, and is there
+an instrument at all. `not snap.is_mandate` blocks RETRY with
+NO_MANDATE_TO_RETRY. The test is the mandate rather than the obligation kind,
+because a checkout abandonment never held an instrument either and a gate
+keyed on kind == ORDER would have missed it.
+
+============================================================================
+
+WHAT THE ENGINE IS LOOKING AT
+  case            live_order_PRE3A
+  kind            ORDER
+  is_mandate      False
+  failure_class   INSUFFICIENT_FUNDS
+  amount          1250000 paise
+
+  A one-time order and no mandate. We hold no instrument, so there is
+  nothing on file to charge. RETRY is not a lever here -- it is a no-op
+  the ladder has to climb past.
+
+WHAT THE GATES SAY
+  G0_HOLDOUT          pass  arm=ENGINE
+  G1_SETTLED          pass  remaining=1250000
+  G2_PROMISED         pass  
+  G3_RISK             pass  
+  G4_OPTED_OUT        pass  
+  G5_WINDOW           pass  age=4.0h
+  G6_RETRY_BUDGET     pass  attempts=1
+  G7_LADDER_TOP       pass  rung=0
+  G8_NON_RETRYABLE    BLOCK NO_MANDATE_TO_RETRY: an order with no mandate holds no instrument to charge, so a retry cannot reach money   <-- blocks RETRY. no instrument, no debit.
+  G9_DOWNTIME         pass  
+  G10_MANDATE_NOTICE  pass  not a mandate
+  G11_AFA             pass  not a mandate
+  G12_QUIET_HOURS     pass  
+  G13_CONTACT_CAP     pass  contacts_7d=0
+  G14_DUPLICATE       pass  
+
+  -> the engine chooses REMIND.
+
+WHAT ACTUALLY HAPPENS WHEN IT RUNS
+  REMIND      DONE      link https://rzp.invalid/dry/c9538f606c87 | fresh_llm | counted (nothing sent), total=1
+
+  rung 2   attempts 1   contacts_sent 1
+
+  The dead rung was never spent. The ladder skipped it -- which is not
+  jumping the ladder, because a hard gate made the rung illegal rather
+  than merely unattractive -- and the first thing this customer gets is
+  a lever that can actually move money.
+
+WHAT THE GATE COST AND WHAT IT BOUGHT
+  It is not free. `sim/world.py` gives RETRY a real success probability
+  on these cases (0.60 on ISSUER_DOWN, 0.45 on NETWORK_ERROR), so
+  blocking it costs the benchmark money: incremental fell from
+  Rs 10,02,742 to Rs 9,66,003. The effect matrix is an input and was not
+  touched to make this look better.
+
+  What it bought is that the number is now about actions that exist. The
+  fixed-retry BASELINE fell much further (Rs 15,39,397 -> Rs 13,08,719),
+  because a naive retry policy is exactly what this gate takes away, and
+  the engine's share of the oracle ceiling rose from 64.8% to 76.2%.

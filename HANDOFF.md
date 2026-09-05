@@ -38,14 +38,14 @@ tests/                     11 passing tests
 
 ```bash
 pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -q                                  # 15 passed
+PYTHONPATH=. pytest tests/ -q                                  # 283 passed
 PYTHONPATH=. python run_benchmark.py --n 2000 --preset default
 PYTHONPATH=. python main.py                                    # localhost:8000
 ```
 
 ### The headline number
 
-**Incremental: Rs 947,291 (mean of 5 seeds, range Rs 855k – Rs 1,013k)**
+**Incremental: Rs 850,108 (mean of 5 seeds, range Rs 758k – Rs 966k)**
 
 Quote this, not a single seed. A judge who reruns with a different seed lands
 inside that range, which is the point of stating it. The single-seed run below is
@@ -56,20 +56,20 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
 ```
   arm              recovered     rate   contacts   actions   written off
   CONTROL         Rs 892,622    26.9%          0         0         1,423
-  BASELINE      Rs 1,539,397    46.4%      1,296     3,532         1,051
-  ENGINE        Rs 1,895,364    57.2%      2,995     3,844           912
-  ORACLE        Rs 2,438,891    73.6%      2,581     4,865           545
+  BASELINE      Rs 1,308,719    39.5%      1,570     1,541         1,206
+  ENGINE        Rs 1,858,625    56.1%      3,205     3,205           924
+  ORACLE        Rs 2,159,975    65.2%      3,044     3,523           667
 
   at risk            Rs 3,314,887
   organic (control)  Rs 892,622   <- money that arrived anyway
-  INCREMENTAL        Rs 1,002,742
-  net of reversals   Rs 986,127
-    case-level CI      [Rs 819,143 .. Rs 1,209,087]   (bootstrap within this run)
-  % of oracle ceiling   64.8%
+  INCREMENTAL        Rs 966,003
+  net of reversals   Rs 943,227
+    case-level CI      [Rs 778,422 .. Rs 1,174,428]   (bootstrap within this run)
+  % of oracle ceiling   76.2%
 
-  false chase /10k   engine 0.0   baseline 90.0
-  left alone         1,044 cases  (Rs 1,215,971 deliberately not chased)
-  written off        912 cases  (Rs 1,419,523)
+  false chase /10k   engine 0.0   baseline 145.0
+  left alone         1,036 cases  (Rs 1,192,089 deliberately not chased)
+  written off        924 cases  (Rs 1,456,262)
 ```
 
 ### Two uncertainty numbers, not one
@@ -78,32 +78,71 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
 
 ```
   seed         incremental   % of ceiling
-  42          Rs 1,002,742          64.8%
-  43            Rs 855,177          67.4%
-  44          Rs 1,013,264          65.2%
-  45            Rs 958,181          65.1%
-  46            Rs 907,094          71.4%
+  42            Rs 966,003          76.2%
+  43            Rs 797,659          69.7%
+  44            Rs 758,480          59.7%
+  45            Rs 924,451          76.2%
+  46            Rs 803,949          70.0%
 
-  mean incremental      Rs 947,291
-  seed-to-seed range    [Rs 855,177 .. Rs 1,013,264]   <- across 5 independent runs
-  case-level CI (mean)  [Rs 724,144 .. Rs 1,180,281]   <- bootstrap within one run
-  % of oracle ceiling   66.8%   [64.8% .. 71.4%]
+  mean incremental      Rs 850,108
+  seed-to-seed range    [Rs 758,480 .. Rs 966,003]   <- across 5 independent runs
+  case-level CI (mean)  [Rs 622,442 .. Rs 1,084,224]   <- bootstrap within one run
+  % of oracle ceiling   70.3%   [59.7% .. 76.2%]
 ```
 
 The bootstrap CI resamples cases inside one run, so it only sees case-level
 variance. The seed sweep redraws the world and every action roll. **Quote both.**
-Headline the mean (Rs 947,291), not seed 42's Rs 1,002,742 — one seed is one draw.
+Headline the mean (Rs 850,108), not seed 42's Rs 966,003 — one seed is one draw.
 
-Note the seed range (Rs 158k wide) came out *narrower* than the case-level CI
-(Rs 456k wide). Five seeds is a small sample for a range and the bootstrap is
+Note the seed range (Rs 208k wide) came out *narrower* than the case-level CI
+(Rs 462k wide). Five seeds is a small sample for a range and the bootstrap is
 genuinely wide at n=2000, so read them as complementary, not one superseding
 the other.
 
-### Why "% of oracle ceiling" moved 71.8% → 64.8%
+### Why the numbers moved at item 3a, and which direction is which
 
-Not a regression. ORACLE now draws from a stable stream and recovers more (73.6%
-vs the old 69.9%), so the ceiling — the denominator — grew. The engine is
-unchanged. The old 71.8% was computed against an unreproducible oracle draw.
+Item 3a taught G8 that a case with no mandate holds no instrument, so RETRY there
+cannot reach money. Everything in this section moved as a result, and it did not
+all move the same way:
+
+```
+                       before 3a      after 3a
+  BASELINE            Rs 1,539,397   Rs 1,308,719     -15.0%
+  ENGINE              Rs 1,895,364   Rs 1,858,625      -1.9%
+  ORACLE              Rs 2,438,891   Rs 2,159,975     -11.4%
+  INCREMENTAL         Rs 1,002,742     Rs 966,003      -3.7%
+  % of oracle ceiling        64.8%          76.2%    +11.4pt
+```
+
+The engine recovers *less money* and captures *more of the ceiling*. Both are
+real. `sim/world.py` gives RETRY a genuine success probability on these cases
+(0.60 on ISSUER_DOWN, 0.45 on NETWORK_ERROR) and that matrix is an input — it was
+not touched to make this look better. So the simulator still pays out for a retry
+that the live executor reports back as `INTENT_ONLY: server-initiated debit not
+enabled`. Item 3a stops the engine collecting that fake money.
+
+BASELINE falls hardest because a fixed retry-first policy is precisely what the
+gate takes away. ORACLE falls too — the ceiling itself was partly built on retries
+that cannot happen — and the ratio rises because the denominator got honest faster
+than the numerator did.
+
+**The number went down and the claim got stronger.** Rs 9,66,003 that could
+actually be collected beats Rs 10,02,742 that partly could not.
+
+### What item 3a cost the preset sweep
+
+`retry_friendly` doubles retry success, and it exists to catch a rigged
+simulator: if we still beat the dumb tool in a world built to favour dumb
+retries, something is wrong. After 3a its control, baseline and engine columns
+are **identical to `default`** — the gate blocks retries on every non-mandate
+case, so the preset's only lever now moves ~25% of the corpus (subscriptions,
+the ones that hold a mandate) and the two worlds converge.
+
+That is a real loss of test power, stated rather than hidden. `high_organic` and
+`noisy` still discriminate and still carry the anti-rigging argument; the retry
+world no longer does much. Fixing it properly means a preset that varies
+something the engine can still act on, and that is a change to `sim/world.py`
+inputs, which invariant 4 forbids without a decision from you.
 
 If CONTROL ever shows contacts > 0 or actions > 0, stop everything: gate G0 is
 broken and the headline number is fiction.
@@ -112,16 +151,23 @@ broken and the headline number is fiction.
 
 | preset | control | baseline | engine | oracle | incremental | % of ceiling |
 |---|---|---|---|---|---|---|
-| default | 25.9% | 44.3% | 55.4% | 74.5% | Rs 741,674 | 60.7% |
-| high_organic | 43.7% | 57.3% | 64.1% | 78.8% | Rs 487,838 | 58.3% |
-| retry_friendly | 25.9% | 49.4% | 57.9% | 78.1% | Rs 803,102 | 61.3% |
-| noisy | 25.9% | 45.6% | 55.7% | 73.0% | Rs 748,876 | 63.2% |
+| preset | control | baseline | engine | oracle | incremental | % of ceiling |
+|---|---|---|---|---|---|---|
+| default | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.7% |
+| high_organic | 43.7% | 48.2% | 64.2% | 70.0% | Rs 490,133 | 78.2% |
+| retry_friendly | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.6% |
+| noisy | 25.9% | 37.8% | 55.1% | 67.2% | Rs 734,409 | 70.7% |
 
-`high_organic` cuts our edge by a third (Rs 487,838 vs Rs 741,674) and is the only
-world where control alone recovers 43.7%. `retry_friendly` lifts the baseline 5
-points, exactly as intended — when retries work, the dumb tool catches up.
-**Report all four. Do not tune them away** — they are the evidence the simulator
-is not rigged, and that is worth more than a bigger number.
+`high_organic` cuts our edge by a third (Rs 490,133 vs Rs 781,894) and is the only
+world where control alone recovers 43.7% — that one still does its job. `noisy`
+costs us 2 points of engine recovery and 10 points of ceiling share, which is the
+honest answer to "can it still learn when the signal is dirty".
+
+`retry_friendly` now reads identically to `default` on the first three columns.
+See "What item 3a cost the preset sweep" above: that is a consequence of the
+no-mandate gate, not a copy-paste error, and it means this preset has stopped
+being evidence. **Report all four anyway. Do not tune them away** — including the
+one that no longer discriminates, because hiding it would be the actual dishonesty.
 
 ## The dashboard (already working)
 

@@ -119,12 +119,36 @@ def run_gates(snap: CaseSnapshot, cfg: Config) -> GateResult:
                     terminal=ActionType.WRITE_OFF)
     ok("G7_LADDER_TOP", f"rung={snap.rung}")
 
-    # -- G8 NON-RETRYABLE INSTRUMENT ---------------------------------------
-    # An expired card does not become unexpired because you asked twice.
+    # -- G8 CAN A RETRY WORK AT ALL ----------------------------------------
+    # Two different ways it cannot, and the trace has to say which one.
+    #
+    # The instrument is wrong: an expired card does not become unexpired because
+    # you asked twice.
+    #
+    # Or there is no instrument. A server-initiated debit needs a mandate; without
+    # one there is nothing on file to charge, and the customer has to come back and
+    # pay. RETRY there is not a long shot, it is a no-op that still costs a rung --
+    # the engine used to spend rung 1 on it and learn nothing
+    # (docs/evidence/pre_3a_wasted_rung.txt). PAY_LINK is the real first lever.
+    #
+    # The test is `is_mandate`, not the obligation kind. Kind is a proxy for it and
+    # a leaky one: an invoice can be collected under an e-mandate and a checkout
+    # abandonment never had an instrument at all. The precondition for a debit is
+    # the mandate itself, so that is what is asked about.
+    why_not_retry = []
     if snap.failure_class in NON_RETRYABLE_FAILURES:
+        why_not_retry.append(f"{StopReason.NON_RETRYABLE.value}: "
+                             f"{snap.failure_class.value}, retry pointless, "
+                             "method change legal")
+    if not snap.is_mandate:
+        kind = snap.kind.value.lower()
+        article = "an" if kind[0] in "aeiou" else "a"
+        why_not_retry.append(f"{StopReason.NO_MANDATE_TO_RETRY.value}: "
+                             f"{article} {kind} with no mandate holds no instrument "
+                             "to charge, so a retry cannot reach money")
+    if why_not_retry:
         blocked_actions.add(ActionType.RETRY)
-        trace.append(GateTrace("G8_NON_RETRYABLE", False,
-                               f"{snap.failure_class.value}: retry pointless, method change legal"))
+        trace.append(GateTrace("G8_NON_RETRYABLE", False, " · ".join(why_not_retry)))
     else:
         ok("G8_NON_RETRYABLE")
 

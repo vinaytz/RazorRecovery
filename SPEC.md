@@ -64,6 +64,7 @@ class ActionType(str, Enum):
 class StopReason(str, Enum):
     CONTROL_ARM = "CONTROL_ARM"; ALREADY_SETTLED = "ALREADY_SETTLED"
     PROMISED = "PROMISED"; NON_RETRYABLE = "NON_RETRYABLE"
+    NO_MANDATE_TO_RETRY = "NO_MANDATE_TO_RETRY"
     BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"; WINDOW_EXPIRED = "WINDOW_EXPIRED"
     OPTED_OUT = "OPTED_OUT"; QUIET_HOURS = "QUIET_HOURS"
     MANDATE_NOTICE_REQUIRED = "MANDATE_NOTICE_REQUIRED"; AFA_REQUIRED = "AFA_REQUIRED"
@@ -150,6 +151,11 @@ G6  BUDGET            attempts >= max_attempts → block RETRY
 G7  LADDER_TOP        rung >= max_rung → STOP(LADDER_TOP) + WRITE_OFF
 G8  NON_RETRYABLE     failure_class in {CARD_EXPIRED, CARD_BLOCKED, MANDATE_INVALID}
                          → block RETRY  (METHOD_CHANGE stays legal)
+                      or not is_mandate → block RETRY, reason NO_MANDATE_TO_RETRY
+                         (item 3a: no mandate means no instrument to charge, so a
+                          retry cannot reach money. keyed on the mandate, not the
+                          obligation kind -- an abandoned CHECKOUT never held one
+                          either. the trace names whichever reason fired.)
 G9  DOWNTIME          method_in_downtime → block RETRY, WAIT(downtime_ends_at)
 G10 MANDATE_NOTICE    is_mandate and RETRY and (last_notice_sent_at is None
                          or now - last_notice_sent_at < 24h)
