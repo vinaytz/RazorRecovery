@@ -28,6 +28,11 @@ services:
     env_file:
       # Optional. Compose errors out on a missing env_file unless `required` is
       # false, and the whole point is that the stack runs without one.
+      #
+      # `required:` needs Docker Compose v2.24 (Jan 2024) or newer. If yours is
+      # older, `docker compose up` fails with a parse error here -- delete these
+      # three lines, or `touch .env`, and it runs. Check with
+      # `docker compose version`.
       - path: .env
         required: false
     restart: unless-stopped

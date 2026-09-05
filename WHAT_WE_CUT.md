@@ -16,7 +16,7 @@ someone's card, and a debit is not reversible. The decision path, gates,
 idempotency key and outcome recording are all real — only the final debit call
 is withheld.
 
-**Webhook fixtures are hand-built, not live captures.** The 5 payloads in
+**Webhook fixtures are hand-built, not live captures.** The 9 payloads in
 `fixtures/webhooks/` follow Razorpay's documented event schema — real field
 names, real nesting, real `error_reason` values — but the ids are `_TEST`
 placeholders and no live account produced them. We had no tunnel binary
@@ -75,6 +75,47 @@ wired to it.
 Real deployment needs per-merchant friction costs and contact caps, since a
 ₹200 D2C order and a ₹90,000 SaaS invoice do not tolerate the same nudge rate.
 
+### Cut from the final batch
+
+The last work session had a longer list than the clock allowed. These four were
+dropped, and the reason each one is written down instead of quietly abandoned is
+that two of them are load-bearing for claims made elsewhere.
+
+**Promise-to-pay ingestion (item 3e).** Gate G2 blocks contact while a customer
+has promised to pay by a date. The gate is built, ordered and unit-tested — and
+nothing in the codebase ever writes `promised_until`, so **G2 has never fired in
+any run, benchmark or live**. 3e was the item that would have fed it, from a
+reply-parsing path on inbound email. `tests/test_dead_metrics.py` pins the gap so
+it cannot quietly become a claim, and README's "three dead metrics" says so in
+the open.
+
+**CLAIMS.md (item 3i).** A single file listing every number in the README next to
+the command that reproduces it, so a judge could check them without reading prose.
+The numbers are all reproducible today — `run_benchmark.py --n 2000` for the
+headline, `--seeds 42,43,44,45,46` for the sweep, `--all-presets --n 1500` for the
+world table — but they are scattered across three documents rather than indexed in
+one.
+
+**Worker status strip on the dashboard.** A live line showing whether the
+recovery loop is ticking, when it last ran, and how many cases it touched.
+`WORKER=off` is currently invisible in the UI: the dashboard looks identical
+whether the loop is running or not, and you have to read the server log to tell.
+That is a real gap for a demo, and it is the one cut here most likely to be
+noticed.
+
+**DEMO.md.** A scripted walkthrough — which tab, which button, in what order,
+with the expected output of each. The four chaos buttons and the replay endpoint
+are documented in README, but nobody has written the five-minute path through
+them.
+
+**Two things on the original cut list were not actually cut, and are recorded
+here so this file does not claim otherwise.** The stale-downtime threshold
+(`STALE_DOWNTIME_HOURS`, default 6, the STALLED row on the Ops tab, deliberately
+*not* auto-expiring) shipped in `728a0b7`. The `link_friendly` preset shipped in
+`0976033` and has its own row in the README's six-world table. Writing either of
+them up as a time cut would have put a false statement in the file whose entire
+job is to be the true one.
+
 ---
 
 ## Known limits of the evidence
@@ -92,8 +133,8 @@ gate-and-uplift discipline means it rarely loses a whole class. A finer key
 would surface losses; we did not tune the key to manufacture one.
 
 **Five seeds is a small sample.** The seed-to-seed range
-(Rs 855k – Rs 1,013k) came out *narrower* than the within-run bootstrap CI
-(Rs 724k – Rs 1,180k), which is the opposite of what we predicted when we added
+(Rs 779k – Rs 1,028k) came out *narrower* than the within-run bootstrap CI
+(Rs 671k – Rs 1,139k), which is the opposite of what we predicted when we added
 the sweep. Read them as complementary measures of different variance sources,
 not one superseding the other.
 
