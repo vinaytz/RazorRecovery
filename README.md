@@ -640,6 +640,35 @@ button works — but it replays an event Razorpay never sends, and
 `test_fixture_replay_and_the_api_produce_the_same_watch_row` pins that the two
 feeds cannot drift.
 
+## Demo checkout
+
+`http://localhost:8000/checkout` — a real merchant-style page, the one
+surface in this repo that a *customer* would ever see. Enter an email and an
+amount, then pay.
+
+- **With `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` set** the page opens genuine
+  Razorpay Checkout (test mode): `order.create()` is called server-side, the
+  order is put on the abandonment watch list *before* the modal opens, and the
+  success/failure callbacks do not trust the browser. Each carries only the
+  payment id; the server calls `payment.fetch()` and builds the event from the
+  entity Razorpay returns, then runs it through the same `ingest.ingest` the
+  webhook handler uses.
+- **Without credentials** no payment screen can open, and the page says so up
+  front instead of pretending. The order is still created and watched, and
+  "Simulate a card failure" replays the failed-payment path so the engine can be
+  shown reacting offline. That endpoint marks its payload `simulated: true` — the
+  case, the classification and the decision are real; only the payment is not.
+
+The transport is the one compromise. Razorpay POSTs `payment.captured` to
+`/webhooks/razorpay`, which cannot reach a laptop without a tunnel. The page is a
+stand-in messenger: it sends the payment id, the server fetches the truth from
+Razorpay, and the resulting entity lands in production `ingest` code. With a
+tunnel the real webhook works too — a duplicate collapses on
+`UNIQUE(settlements.payment_id)`, so the money is never counted twice.
+
+Test cards: `4111 1111 1111 1111` succeeds, `5104 0600 0000 0008` fails. No money
+moves in test mode.
+
 ---
 
 ## Dashboard
@@ -676,8 +705,8 @@ feeds cannot drift.
 ## Tests
 
 ```bash
-PYTHONPATH=. pytest tests/ -q                  # 349 passed
-docker compose exec app pytest tests/ -q       # 348 passed, 1 skipped
+PYTHONPATH=. pytest tests/ -q                  # 362 passed
+docker compose exec app pytest tests/ -q       # 361 passed, 1 skipped
 ```
 
 The one that skips in the image is `test_abandonment.py:314`, which shells out to

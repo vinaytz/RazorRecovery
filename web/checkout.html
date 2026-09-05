@@ -1,0 +1,253 @@
+<!doctype html>
+<!--
+  The merchant's checkout. Where the customer is, in the demo.
+
+  Everything else in this project is an operator's view. This is the only page a
+  paying customer would ever see, so it looks like a store's checkout and not like
+  a dashboard: one form, one button, and a log underneath that says what the
+  engine did about it.
+
+  The log is the point. A judge watching this should be able to read, in order:
+  order created -> watched -> paid or failed -> case opened -> and then switch to
+  the dashboard and find the same case there.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Checkout — Acme Retail</title>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>
+  :root{
+    --ink:#16181d; --muted:#6b7079; --line:#e3e5e9; --bg:#fbfbfc; --card:#fff;
+    --engine:#1a6b4f; --warn:#a8531c; --stop:#8f2c25;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    font-variant-numeric:tabular-nums}
+  .wrap{max-width:560px;margin:0 auto;padding:44px 24px 90px}
+  .brand{font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  h1{font-size:22px;font-weight:600;margin:16px 0 4px;letter-spacing:-.01em}
+  .lede{color:var(--muted);font-size:14px;margin:0 0 24px;max-width:60ch}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:24px 26px}
+  label{display:block;font-size:13px;color:var(--muted);margin:15px 0 5px}
+  label:first-of-type{margin-top:0}
+  input{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);
+    border-radius:8px;background:#fff;color:inherit}
+  input:focus{outline:2px solid var(--engine);outline-offset:1px;border-color:transparent}
+  .amt{max-width:180px}
+  button{font:inherit;border:0;border-radius:8px;cursor:pointer}
+  .pay{width:100%;padding:12px;background:var(--engine);color:#fff;font-weight:600;margin-top:22px}
+  .pay:disabled{opacity:.5;cursor:default}
+  .mini{background:#f2f3f5;color:#454a52;padding:7px 12px;font-size:13px;margin:0 8px 8px 0}
+  .mini:hover{background:#e8eaee}
+  .mini:disabled{opacity:.45;cursor:default}
+  .mode{margin-top:14px;font-size:13px;color:var(--muted)}
+  .mode b{color:var(--ink);font-weight:600}
+  h2{font-size:14px;font-weight:600;margin:34px 0 0}
+  .hint{color:var(--muted);font-size:13px;margin:4px 0 0;max-width:62ch}
+  .log{margin-top:14px;border-top:1px solid var(--line);font-size:13.5px}
+  .log .r{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #f0f1f3;align-items:baseline}
+  .log .t{color:#9aa0a8;font-size:12.5px;white-space:nowrap;min-width:62px}
+  .log .m{flex:1}
+  .log .m code{background:#f2f3f5;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .good{color:var(--engine)} .warn{color:var(--warn)} .bad{color:var(--stop)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13.5px}
+  th{text-align:left;color:var(--muted);font-weight:500;padding:8px 0;border-bottom:1px solid var(--line)}
+  td{padding:9px 0;border-bottom:1px solid #f0f1f3}
+  td code{font-size:12.5px}
+  .num{text-align:right;white-space:nowrap}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:#eef0f3;color:#454a52}
+  .pill.w{background:#eef3f9;color:#2b4e7a} .pill.a{background:#f7ece3;color:var(--warn)}
+  .pill.p{background:#e4f0ea;color:var(--engine)}
+  a{color:var(--engine)}
+  .foot{margin-top:30px;color:var(--muted);font-size:13px;max-width:62ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand" id="brand">Acme Retail</div>
+  <h1>Complete your order</h1>
+  <p class="lede">A real test-mode checkout. Pay it, fail it, or close the window —
+    each one is a different thing for the recovery engine to notice, and the log
+    below says which.</p>
+
+  <div class="card">
+    <label for="name">Name</label>
+    <input id="name" autocomplete="name" placeholder="Rohit Sharma">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
+    <label for="amount">Amount (₹)</label>
+    <input id="amount" class="amt" type="number" min="1" step="1" value="2899">
+    <button class="pay" id="pay">Pay</button>
+    <div class="mode" id="mode">checking mode…</div>
+  </div>
+
+  <h2>What the engine did</h2>
+  <p class="hint">Written as it happens. The same events are on the
+    <a href="/" target="_blank">dashboard</a> — this is the customer's side of them.</p>
+  <div class="log" id="log"></div>
+
+  <h2>Abandonment watch list</h2>
+  <p class="hint">An order nobody paid for emits no webhook, so it is swept for
+    instead. <span id="win"></span></p>
+  <div>
+    <button class="mini" id="simfail" disabled>Simulate a card failure</button>
+    <button class="mini" id="sweep">Sweep now (0 min window)</button>
+  </div>
+  <table>
+    <thead><tr><th>Order</th><th>Status</th><th class="num">Amount</th></tr></thead>
+    <tbody id="watch"><tr><td colspan="3" class="hint">Nothing watched yet.</td></tr></tbody>
+  </table>
+
+  <p class="foot">Test cards: <code>4111 1111 1111 1111</code> succeeds,
+    <code>5104 0600 0000 0008</code> fails. Any future expiry, any CVV.
+    No money moves in test mode.</p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const R = p => "₹" + (p / 100).toLocaleString("en-IN");
+let order = null;          // the last order created here
+
+// -- the log ---------------------------------------------------------------
+// Newest at the top, because in a filmed demo the newest line is the one being
+// talked about and nobody should have to scroll to see it.
+function say(msg, cls){
+  const t = new Date().toLocaleTimeString("en-GB");
+  const row = document.createElement("div");
+  row.className = "r";
+  row.innerHTML = `<div class="t">${t}</div><div class="m ${cls || ""}">${msg}</div>`;
+  $("#log").prepend(row);
+}
+
+async function post(url, body){
+  const r = await fetch(url, {method: "POST", headers: {"content-type": "application/json"},
+                             body: JSON.stringify(body || {})});
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(typeof d.detail === "string" ? d.detail
+                            : (d.detail && d.detail.error) || `HTTP ${r.status}`);
+  return d;
+}
+
+// -- pay -------------------------------------------------------------------
+$("#pay").onclick = async () => {
+  const email = $("#email").value.trim();
+  const name = $("#name").value.trim();
+  const rupees = parseFloat($("#amount").value);
+  if(!email.includes("@")) return say("Enter an email — the engine needs a way to reach you.", "bad");
+  if(!(rupees > 0)) return say("Enter an amount.", "bad");
+
+  $("#pay").disabled = true;
+  try {
+    // Paise, not rupees. The whole codebase is int paise; this is the one edge
+    // where a human types rupees, so it is the one place that multiplies.
+    const d = await post("/api/checkout", {email, name, amount: Math.round(rupees * 100)});
+    order = d;
+    $("#simfail").disabled = false;
+    say(`Order <code>${d.order_id}</code> created for ${R(d.amount)}.`, "good");
+    say(d.watch_verdict, "");
+    refresh();
+    if(d.live) openRazorpay(d);
+    else say(d.note, "warn");
+  } catch(e){ say("Checkout failed: " + e.message, "bad"); }
+  $("#pay").disabled = false;
+};
+
+function openRazorpay(d){
+  const rzp = new Razorpay({
+    key: d.key, order_id: d.order_id, amount: d.amount, currency: "INR",
+    name: d.merchant, description: "Order " + d.order_id,
+    prefill: {email: d.email, name: d.name || ""},
+    theme: {color: "#1a6b4f"},
+    // Success. We send only the payment id: the server fetches the payment from
+    // Razorpay and believes that, not this.
+    handler: async (rsp) => {
+      say(`Paid — <code>${rsp.razorpay_payment_id}</code>. Verifying with Razorpay…`, "good");
+      try {
+        const out = await post("/api/checkout/paid", rsp);
+        const r = out.result || {};
+        say(`Verified <b>${out.status}</b>. ${r.verdict || r.action || "ingested"}`, "good");
+      } catch(e){ say("Verification failed: " + e.message, "bad"); }
+      refresh();
+    },
+    modal: {ondismiss: () => {
+      // No event exists for this. That is the entire reason the sweeper exists.
+      say(`You closed the payment window. Razorpay sends nothing for that — the ` +
+          `order stays on the watch list and the sweeper opens a case after ` +
+          `${d.abandon_minutes} minutes of silence.`, "warn");
+      refresh();
+    }},
+  });
+  // A declined card is not an exception in the browser; it is this event.
+  rzp.on("payment.failed", async (rsp) => {
+    const err = (rsp && rsp.error) || {};
+    say(`Payment failed: ${err.description || err.reason || "declined"}. Verifying…`, "bad");
+    try {
+      const out = await post("/api/checkout/failed", err.metadata
+        ? {error: err} : {error: err, order_id: d.order_id});
+      const r = out.result || {};
+      say(out.ingested === false ? out.verdict
+          : `Classified <b>${r.failure_class || "?"}</b> from Razorpay's own ` +
+            `<code>${out.error_reason || "error"}</code>. ${r.verdict || ""}`, "warn");
+    } catch(e){ say("Could not ingest the failure: " + e.message, "bad"); }
+    refresh();
+  });
+  rzp.open();
+  say("Razorpay Checkout open. Pay it, fail it, or close it.", "");
+}
+
+// -- the two demo levers ---------------------------------------------------
+$("#simfail").onclick = async () => {
+  if(!order) return;
+  try {
+    const out = await post("/api/checkout/simulate-failure", {order_id: order.order_id});
+    const r = out.result || {};
+    say(`Simulated <code>${out.error_reason}</code> on <code>${out.order_id}</code> — ` +
+        `${r.verdict || r.action}. <i>${out.honesty}</i>`, "warn");
+  } catch(e){ say(e.message, "bad"); }
+  refresh();
+};
+
+$("#sweep").onclick = async () => {
+  try {
+    const out = await post("/api/sweep?minutes=0");
+    say(out.verdict, out.opened.length ? "warn" : "");
+    out.opened.forEach(o => say(`Case <code>${o.case_id}</code> opened for ` +
+                                `${R(o.amount)} — nobody paid.`, "warn"));
+  } catch(e){ say(e.message, "bad"); }
+  refresh();
+};
+
+// -- the watch list --------------------------------------------------------
+const PILL = {WATCHING: "w", ABANDONED: "a", PAID: "p"};
+async function refresh(){
+  try {
+    const d = await (await fetch("/api/checkouts")).json();
+    const rows = [...(d.watching || []), ...(d.abandoned || []).slice(0, 8)];
+    $("#win").textContent = `Default window: ${d.abandon_minutes} minutes.`;
+    $("#watch").innerHTML = rows.length ? rows.map(o =>
+      `<tr><td><code>${o.order_id}</code></td>` +
+      `<td><span class="pill ${PILL[o.status] || ""}">${o.status}</span></td>` +
+      `<td class="num">${R(o.amount)}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="hint">Nothing watched yet.</td></tr>`;
+  } catch(e){}
+}
+
+// -- mode ------------------------------------------------------------------
+// Say up front whether this is a real Razorpay screen or a credential-less
+// stand-in. A demo that looks live and is not is worse than one that says so.
+(async () => {
+  try {
+    const m = await (await fetch("/api/checkout/mode")).json();
+    $("#brand").textContent = m.merchant;
+    document.title = "Checkout — " + m.merchant;
+    $("#mode").innerHTML = `<b>${m.live ? "Live test mode." : "No Razorpay credentials."}</b> ` +
+      m.summary.replace(/^[a-z ]*-- /, "");
+  } catch(e){ $("#mode").textContent = ""; }
+  refresh();
+})();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

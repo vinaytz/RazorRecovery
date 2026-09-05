@@ -29,7 +29,7 @@ sim/runner.py              four-arm harness, one world COPY per arm (3z)
 run_benchmark.py           the experiment
 main.py                    FastAPI entrypoint
 config/default.yaml        every tunable, already chosen
-tests/                     349 passing tests (290 at P6; batch 3 adds to this)
+tests/                     362 passing tests (290 at P6; batch 3 and the checkout page add to this)
 ```
 
 **TASKS.md P0 through P6 are DONE.** Start at P7.
@@ -38,7 +38,7 @@ tests/                     349 passing tests (290 at P6; batch 3 adds to this)
 
 ```bash
 pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -q                                  # 349 passed
+PYTHONPATH=. pytest tests/ -q                                  # 362 passed
 PYTHONPATH=. python run_benchmark.py --n 2000 --preset default
 PYTHONPATH=. python main.py                                    # localhost:8000
 ```
