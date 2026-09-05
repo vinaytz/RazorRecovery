@@ -1,13 +1,16 @@
 <h1 align="center">RazorRecovery</h1>
 
 <p align="center">
-  <b>The only payment recovery engine that can prove what it caused.</b>
+  <b>The only payment recovery engine that can prove what it caused.
+
+> ### **₹9,54,052 incremental** · **75% of the perfect-play ceiling** · **0 false chases per 10k**
+> vs a fixed-schedule baseline's 145 per 10k, on the same 2,000 failed payments.</b>
 </p>
 
 <p align="center">
   <a href="#run-it">Run it</a> ·
   <a href="#the-number-that-matters">The number</a> ·
-  <a href="#bugs-found-in-our-own-measurements">What broke</a> ·
+  <a href="#bugs-found-in-our-own-measurements">How I know the numbers are honest</a> ·
   <a href="WHAT_WE_CUT.md">Honest scope</a>
 </p>
 
@@ -20,6 +23,8 @@ Most recovery tools bill merchants for money that was arriving anyway. This one 
 The story is not the number. The story is that the number is honest — and this README tells you exactly why.
 
 ![Scoreboard: four-bar comparison showing control Rs 8.9L, engine Rs 18.4L, with the Rs 9.5L incremental gap](docs/images/stats.png)
+
+Most recovery tools report gross recovered. This one runs a permanent holdout group — cases the engine is *forbidden* to touch — and only counts the gap. Everything downstream (uplift scoring, negative-uplift refusals, replayable decisions, RBI-compliant gates) follows from that one choice.
 
 ## Run it
 
@@ -320,7 +325,7 @@ noticed.
 
 ---
 
-## Bugs found in our own measurements
+## How I know the numbers are honest
 
 Most of these were found by unrelated work colliding with them, not by looking
 for them. That is the reason they are written down instead of quietly fixed: a
