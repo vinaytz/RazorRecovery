@@ -25,11 +25,11 @@ app/services/clock.py      RealClock | VirtualClock
 app/config_loader.py       yaml -> frozen Config
 app/metrics.py             bootstrap CI, Wilson, scoreboard, where-we-lost
 sim/world.py               archetypes, HiddenTruth, 6 presets
-sim/runner.py              four-arm harness on a virtual clock
+sim/runner.py              four-arm harness, one world COPY per arm (3z)
 run_benchmark.py           the experiment
 main.py                    FastAPI entrypoint
 config/default.yaml        every tunable, already chosen
-tests/                     325 passing tests (290 at P6; batch 3 adds to this)
+tests/                     335 passing tests (290 at P6; batch 3 adds to this)
 ```
 
 **TASKS.md P0 through P6 are DONE.** Start at P7.
@@ -38,14 +38,14 @@ tests/                     325 passing tests (290 at P6; batch 3 adds to this)
 
 ```bash
 pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -q                                  # 325 passed
+PYTHONPATH=. pytest tests/ -q                                  # 335 passed
 PYTHONPATH=. python run_benchmark.py --n 2000 --preset default
 PYTHONPATH=. python main.py                                    # localhost:8000
 ```
 
 ### The headline number
 
-**Incremental: Rs 894,825 (mean of 5 seeds, range Rs 809k – Rs 978k)**
+**Incremental: Rs 897,958 (mean of 5 seeds, range Rs 779k – Rs 1,028k)**
 
 Quote this, not a single seed. A judge who reruns with a different seed lands
 inside that range, which is the point of stating it. The single-seed run below is
@@ -57,23 +57,24 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
   arm              recovered     rate   contacts   actions   written off
   CONTROL         Rs 892,622    26.9%          0         0         1,423
   BASELINE      Rs 1,308,719    39.5%      1,570     1,541         1,206
-  ENGINE        Rs 1,870,324    56.4%      3,225     3,225           920
-  ORACLE        Rs 2,163,470    65.3%      3,044     3,523           665
+  ENGINE        Rs 1,846,673    55.7%      3,197     3,197           923
+  ORACLE        Rs 2,164,541    65.3%      3,044     3,523           663
 
   at risk            Rs 3,314,887
   organic (control)  Rs 892,622   <- money that arrived anyway
-  INCREMENTAL        Rs 977,702
-  net of reversals   Rs 958,071
-    case-level CI      [Rs 777,539 .. Rs 1,181,515]   (bootstrap within this run)
-  % of oracle ceiling   76.9%
+  INCREMENTAL        Rs 954,052
+  net of reversals   Rs 930,001
+    case-level CI      [Rs 759,173 .. Rs 1,161,879]   (bootstrap within this run)
+  % of oracle ceiling   75.0%
 
   false chase /10k   engine 0.0   baseline 145.0
-  left alone         1,034 cases  (Rs 1,147,439 deliberately not chased)
-  written off        920 cases  (Rs 1,444,563)
+  left alone         1,021 cases  (Rs 1,178,987 deliberately not chased)
+  written off        923 cases  (Rs 1,468,214)
+  double charges     0
 ```
 
-`md5 4100448ff669f75f01524bb4ccad7542` over that stdout. Item 3c moved it; before
-that it was `68c99ce838b892575a1912db8afb1166`.
+`md5 763fcd5cb36db1593189c08f2c59c70e` over that stdout. Item 3z moved it (each
+arm now gets its own copy of the world); 3c moved it before that.
 
 ### Two uncertainty numbers, not one
 
@@ -81,24 +82,24 @@ that it was `68c99ce838b892575a1912db8afb1166`.
 
 ```
   seed         incremental   % of ceiling
-  42            Rs 977,702          76.9%
-  43            Rs 808,840          70.8%
-  44            Rs 897,965          70.5%
-  45            Rs 926,890          76.2%
-  46            Rs 862,728          75.2%
+  42            Rs 954,052          75.0%
+  43            Rs 778,815          67.4%
+  44          Rs 1,028,039          80.4%
+  45            Rs 888,983          72.1%
+  46            Rs 839,904          72.9%
 
-  mean incremental      Rs 894,825
-  seed-to-seed range    [Rs 808,840 .. Rs 977,702]   <- across 5 independent runs
-  case-level CI (mean)  [Rs 666,789 .. Rs 1,126,746]   <- bootstrap within one run
-  % of oracle ceiling   73.9%   [70.5% .. 76.9%]
+  mean incremental      Rs 897,958
+  seed-to-seed range    [Rs 778,815 .. Rs 1,028,039]   <- across 5 independent runs
+  case-level CI (mean)  [Rs 671,202 .. Rs 1,139,296]   <- bootstrap within one run
+  % of oracle ceiling   73.6%   [67.4% .. 80.4%]
 ```
 
 The bootstrap CI resamples cases inside one run, so it only sees case-level
 variance. The seed sweep redraws the world and every action roll. **Quote both.**
-Headline the mean (Rs 894,825), not seed 42's Rs 977,702 — one seed is one draw.
+Headline the mean (Rs 897,958), not seed 42's Rs 954,052 — one seed is one draw.
 
-Note the seed range (Rs 169k wide) came out *narrower* than the case-level CI
-(Rs 460k wide). Five seeds is a small sample for a range and the bootstrap is
+Note the seed range (Rs 249k wide) came out *narrower* than the case-level CI
+(Rs 468k wide). Five seeds is a small sample for a range and the bootstrap is
 genuinely wide at n=2000, so read them as complementary, not one superseding
 the other.
 
@@ -124,12 +125,12 @@ must shed it too), and the *magnitudes* are not. Treat every percentage here as 
 few points, at minimum.
 
 ```
-                       before 3a      after 3a
+                       before 3a      today
   BASELINE            Rs 1,539,397   Rs 1,308,719     down
-  ENGINE              Rs 1,895,364   Rs 1,870,324     down
-  ORACLE              Rs 2,438,891   Rs 2,163,470     down
-  INCREMENTAL         Rs 1,002,742     Rs 977,702     down
-  % of oracle ceiling        64.8%          76.9%     up
+  ENGINE              Rs 1,895,364   Rs 1,846,673     down
+  ORACLE              Rs 2,438,891   Rs 2,164,541     down
+  INCREMENTAL         Rs 1,002,742     Rs 954,052     down
+  % of oracle ceiling        64.8%          75.0%     up
 ```
 
 The engine recovers *less money* and captures *more of the ceiling*. Both are
@@ -151,8 +152,11 @@ as the ceiling getting honest. That magnitude was never attributable and this
 table no longer claims it. See README, "a rounding error moves the numbers as far
 as the feature does".
 
-**The number went down and the claim got stronger.** Rs 9,77,702 that could
+**The number went down and the claim got stronger.** Rs 9,54,052 that could
 actually be collected beats Rs 10,02,742 that partly could not.
+
+The right-hand column is today's number, which item 3z lowered again for the same
+kind of reason — see "the four arms are not independent" below.
 
 ### What item 3a cost the preset sweep, and what was added to replace it
 
@@ -191,24 +195,25 @@ broken and the headline number is fiction.
 
 | preset | control | baseline | engine | oracle | incremental | % of ceiling | evidence for |
 |---|---|---|---|---|---|---|---|
-| default | 25.9% | 37.7% | 53.4% | 64.4% | Rs 690,581 | 71.5% | the headline |
-| high_organic | 43.7% | 48.2% | 62.4% | 69.5% | Rs 445,728 | 72.4% | **costs us** |
-| remind_friendly | 25.9% | 48.7% | 58.8% | 73.6% | Rs 826,941 | 69.0% | **costs us** |
-| noisy | 25.9% | 37.8% | 54.8% | 66.9% | Rs 726,782 | 70.5% | *barely any more* |
-| retry_friendly | 25.9% | 37.7% | 53.4% | 64.4% | Rs 690,581 | 71.3% | *nothing any more* |
-| link_friendly | 25.9% | 37.7% | 67.3% | 76.9% | Rs 1,039,460 | 81.1% | *flatters us* |
+| default | 25.9% | 37.7% | 53.4% | 64.8% | Rs 690,581 | 70.6% | the headline |
+| high_organic | 43.7% | 48.2% | 61.4% | 71.0% | Rs 422,030 | 64.8% | **costs us** |
+| remind_friendly | 25.9% | 48.7% | 62.7% | 73.7% | Rs 923,697 | 76.9% | **costs us** |
+| noisy | 25.9% | 37.8% | 54.8% | 67.3% | Rs 726,782 | 69.8% | *barely any more* |
+| retry_friendly | 25.9% | 37.7% | 53.4% | 64.9% | Rs 690,581 | 70.5% | *nothing any more* |
+| link_friendly | 25.9% | 37.7% | 67.3% | 77.1% | Rs 1,039,460 | 80.7% | *flatters us* |
 
 **Single seed each. Read the columns, not the deltas** — same reason as the 3a
 table above. What this table supports is the ranking and the shape: which world
 has the highest control arm, which one moves the baseline, which one moves only
 us. What it does not support is "preset X costs us N points".
 
-`high_organic` cuts our incremental by a third (Rs 445,728 vs Rs 690,581) and is
-the only world where control alone recovers 43.7% — that one still does its job,
-and it is structural rather than a seed artifact because the preset raises
-`self_pay` directly. `remind_friendly` moves the baseline furthest of anything in
-the table, by 11 points, which is the point of it and is large enough to survive
-the noise.
+`high_organic` cuts our incremental by nearly 40% (Rs 422,030 vs Rs 690,581) and
+is the only world where control alone recovers 43.7% — that one still does its
+job, and it is structural rather than a seed artifact because the preset raises
+`self_pay` directly. It also now takes the largest bite out of our ceiling share
+of any world in the table. `remind_friendly` moves the baseline furthest of
+anything here, by 11 points, which is the point of it and is large enough to
+survive the noise.
 
 `noisy` has **almost stopped costing us.** It used to take 2 points of engine
 recovery and 10 of ceiling share; it now shows engine recovery slightly higher
@@ -357,44 +362,48 @@ Mirror `sim/runner.py::snapshot_of` — same fields, sourced from repos instead 
   that gap closes while our gate and uplift advantages remain. Mention this in
   the README — volunteering it is worth more than hiding it.
 
-## OPEN, MEASURED, NOT FIXED: the four arms are not independent
+## FIXED in item 3z: the four arms were not independent
 
-Found during item 3c. **This is a live known defect, not a modelled choice.** It
-is written here rather than fixed because fixing it moves the headline number
-downward and that is a call for a human, not for the item that happened to find it.
+Found while measuring item 3c, fixed as its own item. Kept here because the
+numbers everywhere in this file are the *post*-fix ones, and a reader comparing
+against an older README or an older commit needs to know why they moved.
 
-`sim/runner.py:322` does `tr.self_pay_at = None` — the sleeping-dog effect, where
-contacting a customer who would have paid on their own kills that self-payment. It
-mutates the **shared** `World`. `run_once` builds one world and passes it to all
-four arms in sequence, so BASELINE's kills are still gone when ENGINE runs, and
-BASELINE's *and* ENGINE's are gone when ORACLE runs. The arms are not four
-independent draws on the same world; they are a chain.
+`sim/runner.py` does `tr.self_pay_at = None` in `_execute` — the sleeping-dog
+effect, where contacting a customer who would have paid on their own kills that
+self-payment. It mutates `World`. `run_once` built one world and passed it to all
+four arms in sequence, so BASELINE's kills were still gone when ENGINE ran, and
+BASELINE's *and* ENGINE's were gone when ORACLE ran. The arms were not four
+independent draws on the same world; they were a chain.
 
-Measured at n=2000 seed 42, giving each arm its own freshly-generated world:
+Measured at n=2000 seed 42, before and after:
 
 ```
-  arm          shared world (shipped)   own world       delta
-  CONTROL              Rs   892,622    Rs   892,622          0   (never acts)
-  BASELINE             Rs 1,308,719    Rs 1,308,719          0   (runs first)
-  ENGINE               Rs 1,870,324    Rs 1,846,673   -Rs 23,651
-  ORACLE               Rs 2,163,470    Rs 2,164,541    +Rs 1,070
-  INCREMENTAL          Rs   977,702    Rs   954,052   -Rs 23,650
-  % of oracle ceiling         76.9%           75.0%      -1.9pt
+  arm          shared world (was)      own world (now)      delta
+  CONTROL              Rs   892,622    Rs   892,622             0   (never acts)
+  BASELINE             Rs 1,308,719    Rs 1,308,719             0   (runs first)
+  ENGINE               Rs 1,870,324    Rs 1,846,673    -Rs 23,651
+  ORACLE               Rs 2,163,470    Rs 2,164,541     +Rs 1,070
+  INCREMENTAL          Rs   977,702    Rs   954,052    -Rs 23,650
+  % of oracle ceiling         76.9%           75.0%       -1.9pt
 ```
 
-CONTROL and BASELINE are unchanged because CONTROL never acts and BASELINE runs
-first — nothing has mutated the world before them. Only the arms downstream in the
-chain move, which is the signature of the bug rather than of noise.
+CONTROL and BASELINE do not move: CONTROL never acts, and BASELINE runs first, so
+nothing had mutated the world before them. Only the arms downstream in the chain
+move, which is the signature of the bug rather than of noise.
 
-**The direction is the finding; the size is not.** BASELINE kills exactly 2
-self-payers, and 2 customers is worth about Rs 3.3k at the mean case size — so most
-of the Rs 23.6k is the same chaotic divergence documented in the README, not the
-direct value of two customers. What is attributable: the contamination is real, it
-flows downstream only, and it flows in the flattering direction. What is not: the
-claim that fixing it costs exactly Rs 23,650. That would need the seed sweep.
+**The direction was the finding; the size was not.** BASELINE kills exactly 2
+self-payers, worth about Rs 3.3k at the mean case size, so most of the Rs 23.6k is
+the chaotic divergence documented in the README rather than the direct value of
+two customers. What was attributable: the contamination was real, it flowed
+downstream only, and it flowed in the flattering direction — ENGINE was scored on
+a world where BASELINE had already burned self-payers ENGINE would otherwise have
+had to resist contacting.
 
-The fix is one line (build or deep-copy the world per arm) and it would move the
-benchmark md5 a second time and require every table in README.md and HANDOFF.md to
-be regenerated again. **Do not do it silently.** Either fix it and regenerate
-everything, or leave it and keep this section — but the one thing that must not
-happen is the number being quoted as 76.9% with nobody knowing why it isn't 75.0%.
+The fix is `w = copy.deepcopy(w)` at the top of `run_arm`, deliberately placed
+there rather than in `run_once` so a caller cannot forget it.
+`tests/test_arm_independence.py` pins the property from the outside: an arm run
+alone must produce byte-identical results to the same arm run fourth. One of those
+four tests exists specifically to stop the others passing for the wrong reason —
+if isolation ever became *deletion* of the sleeping-dog effect, the independence
+assertions would go green while the simulator quietly stopped modelling the thing
+the whole sleeping-dog story is about.

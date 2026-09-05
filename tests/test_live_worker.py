@@ -122,9 +122,10 @@ def test_the_clock_itself_is_never_scaled(con, monkeypatch):
 # -- the benchmark cannot feel any of this --------------------------------
 
 # Invariant 3's tripwire. ONE constant, edited only when an item is explicitly
-# allowed to change the decision core -- item 3a (G8 gained the no-mandate check)
-# and item 3c (the bandit gained time decay). If this moves for any other reason,
-# live-path code has leaked into `app/domain/` and the headline number is fiction.
+# allowed to change the decision core -- item 3a (G8 gained the no-mandate check),
+# item 3c (the bandit gained time decay), item 3z (each arm got its own copy of
+# the world). If this moves for any other reason, live-path code has leaked into
+# `app/domain/` and the headline number is fiction.
 #
 # It is a VERY sensitive instrument, and item 3c measured how sensitive: a decay
 # of 0.999999 -- which discards 0.07% of the evidence, a rounding error -- moves
@@ -133,7 +134,7 @@ def test_the_clock_itself_is_never_scaled(con, monkeypatch):
 # action, and the run diverges from there. So a moved hash means "the arithmetic
 # path changed", NOT "the engine got better or worse". Only the seed sweep can
 # say which, and see README "Bugs found in our own measurements".
-BENCHMARK_STDOUT_MD5 = "4100448ff669f75f01524bb4ccad7542"
+BENCHMARK_STDOUT_MD5 = "763fcd5cb36db1593189c08f2c59c70e"
 
 
 def _run_benchmark(**env_overrides) -> str:

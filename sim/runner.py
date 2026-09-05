@@ -10,6 +10,7 @@ about a second.
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -155,6 +156,28 @@ ARM_SEED_OFFSET = {
 
 def run_arm(w: World, arm: Arm, cfg: Config, posterior=None,
             seed: int = 42, recorder=None) -> tuple[ArmResult, list[int]]:
+    """Run one arm against its OWN copy of the world.
+
+    The deep copy is load-bearing, not defensive tidiness. `_execute` writes
+    `tr.self_pay_at = None` on a sleeping dog -- the customer who would have paid
+    on their own until we reminded them they wanted to cancel. That is a mutation
+    of `World`, and the four arms run in sequence over one world object, so
+    without this copy BASELINE's kills are still missing when ENGINE starts and
+    both are missing when ORACLE starts. The arms stop being four independent
+    draws on the same world and become a chain, with every arm inheriting the
+    damage done by the ones before it.
+
+    It was measured before it was fixed (item 3z): the contamination was worth
+    Rs 23.6k of incremental and 1.9 points of ceiling share, and it flowed in the
+    flattering direction, because ENGINE was scored on a world where BASELINE had
+    already burned two of the self-payers ENGINE would otherwise have had to
+    resist contacting.
+
+    The copy lives HERE rather than in `run_once` so a caller cannot forget it.
+    `tests/test_arm_independence.py` pins the property from the outside: an arm
+    run alone must produce byte-identical results to the same arm run fourth.
+    """
+    w = copy.deepcopy(w)
     rng = np.random.default_rng(seed * 10 + ARM_SEED_OFFSET[arm])
     policy = oracle_decide_factory(w, cfg) if arm == Arm.ORACLE else POLICIES[arm]
 
@@ -316,7 +339,9 @@ def _execute(st: CaseState, d: Decision, w: World, cfg: Config, rng,
         st.status, st.settled, st.recovered_at = "RECOVERED", True, t
         st.reversed_later = tr.reversed_later
     else:
-        # sleeping dogs: the nudge reminds them they wanted to cancel
+        # sleeping dogs: the nudge reminds them they wanted to cancel.
+        # This MUTATES the world. Safe only because `run_arm` deep-copies it per
+        # arm -- see the docstring there. Do not remove that copy.
         u = tr.uplift(d.action)
         if u < 0 and rng.random() < abs(u) and tr.self_pay_at and tr.self_pay_at > t:
             tr.self_pay_at = None
