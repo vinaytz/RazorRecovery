@@ -617,9 +617,11 @@ async function loadCheckouts(){
         <td>${CLOCK(o.created_at)}</td>
         <td><span class="pill ${CO[o.status]||""}">${say(o.status)}</span></td>
         <td>${o.detail || "waiting to see if they come back"}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">Nothing on the watch list. Replay
-       <code>08_order_created_then_abandoned.json</code> and an order appears here
-       with no case attached to it.</td></tr>`;
+    : `<tr><td colspan="5" class="empty">Nothing on the watch list. Razorpay sends
+       no order-created webhook, so your backend posts the order to
+       <code>POST /api/orders/watch</code> after <code>orders.create()</code> &mdash;
+       or replay <code>08_order_created_then_abandoned.json</code> and an order
+       appears here with no case attached to it.</td></tr>`;
 }
 
 async function sweep(minutes){

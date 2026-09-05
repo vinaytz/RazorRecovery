@@ -14,6 +14,16 @@ it is confined to this file. Once the sweeper decides a checkout was abandoned i
 writes an obligation and a case exactly like `ingest._open_case` does, and from
 that moment on the case is indistinguishable to everything downstream:
 
+    same CaseSnapshot     -- CHECKOUT_ABANDONED was already in FailureClass
+    same gates            -- G0 holdout first, then the rest, unchanged
+    same ladder           -- and RETRY is correctly useless here, see below
+    same engine           -- decide() cannot tell how the case was born
+    same executor         -- one PAY_LINK path for every contact action
+
+ZERO changes to app/domain/. That is the test of whether the abstraction was
+right: a genuinely new revenue source should need new plumbing, not a new core.
+`tests/test_abandonment.py` asserts it, and `git diff --stat` shows it.
+
 WHERE THE FIRST HALF OF THE SIGNAL COMES FROM, and why it is not a webhook.
 Knowing the order exists is the input to this whole file, and **Razorpay does not
 broadcast order creation** -- there is no `order.created` in their webhook event
@@ -25,16 +35,6 @@ their backend, it is documented in README, and it is the ONLY production feed.
 An earlier draft of this module read an `order.created` webhook, which meant the
 sweeper would have swept an empty table forever in production while every unit
 test passed on a hand-built payload. `tests/test_order_watch.py` pins the fix.
-
-    same CaseSnapshot     -- CHECKOUT_ABANDONED was already in FailureClass
-    same gates            -- G0 holdout first, then the rest, unchanged
-    same ladder           -- and RETRY is correctly useless here, see below
-    same engine           -- decide() cannot tell how the case was born
-    same executor         -- one PAY_LINK path for every contact action
-
-ZERO changes to app/domain/. That is the test of whether the abstraction was
-right: a genuinely new revenue source should need new plumbing, not a new core.
-`tests/test_abandonment.py` asserts it, and `git diff --stat` shows it.
 
 WHY THE DELAY IS A CONFIG AND NOT A CONSTANT. `ABANDON_MINUTES` (default 30) is
 the shortest wait we are willing to call a decision. Too short and we email a

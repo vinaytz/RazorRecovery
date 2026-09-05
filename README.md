@@ -510,6 +510,20 @@ The test that makes the relabel mean anything is the contrast one: it asserts
 in the same instrument can be non-zero.** That is the whole rule, and it is the
 rule the original `double_charges: 0` broke.
 
+**Abandoned-checkout detection was wired to a webhook Razorpay does not send.**
+The watch list that feeds the sweeper was written only by an `order.created`
+event. There is no such Razorpay webhook — order creation is a server-side call
+the merchant makes, so the gateway has nothing to broadcast. Twenty tests covered
+the path and all of them passed — sixteen of them by feeding it a hand-built
+`order.created` payload; in production the sweeper would have swept an empty table
+forever and the second at-risk source would have silently contributed nothing.
+Same shape as the dead metrics above, one level up: not a counter that could only
+read zero, but an entire revenue source that could only ever run on its own
+fixture. Fixed with `POST /api/orders/watch`, an explicit one-line merchant
+integration — see [Abandoned checkouts](#abandoned-checkouts-need-one-line-in-your-backend).
+The test that would have caught it is the one that now guards it: run the source
+end to end with **zero** webhook deliveries.
+
 **A test that passes for the wrong reason is worse than no test.** No test is an
 admitted gap. A green test is a claim of coverage, and a false one costs you the
 attention you would otherwise have spent looking. Three of the ones above were
@@ -518,7 +532,9 @@ what they were testing — which is to say, by luck. The habit that catches them
 without luck is the one in the last three entries: after writing down what the
 system does, go make the system do it and read what actually comes back. The last
 one adds the harder version — when a number moves after a change, go find out
-whether the change is what moved it.
+whether the change is what moved it. And the one after that adds a third: for
+every input your system waits for, check that the thing you think is sending it
+actually sends it.
 
 ---
 
@@ -575,6 +591,55 @@ logs *"razorpay SDK unavailable -- STUB mode. Links are fake"* and carries on.
 That is the degradation working as designed, not the credentials working. Webhook
 verification is unaffected — it is `hmac` from the stdlib and needs no SDK.
 
+### Abandoned checkouts need one line in your backend
+
+**Razorpay does not emit an order-created webhook.** It is not in their event
+list, and it never will be: creating an order is a server-side call *you* make, so
+the gateway has nothing to announce. `order.paid` is the only order-scoped event,
+and by then the debt is gone.
+
+That matters because abandoned-checkout recovery is the one source that starts
+from an **absence** — an order exists and no payment ever arrives. Failures get
+pushed to us; an absence cannot be. Something has to tell us the order exists
+before we can notice nobody paid for it, and the only thing that knows is your
+backend:
+
+```python
+order = client.order.create({"amount": 289900, "currency": "INR",
+                             "notes": {"email": "buyer@example.com"}})
+requests.post("http://<host>/api/orders/watch", json=order)   # <- the whole integration
+```
+
+Post the order object Razorpay handed you, verbatim — `id`, `amount`, `receipt`,
+`created_at` and `notes` are read straight off it, so there is nothing to map. Put
+the customer's email or phone in `notes` (where a checkout integration already
+puts it), or the sweeper opens a case for someone it has no way to reach.
+
+What the endpoint does: writes one `WATCHING` row. It opens no case and sends
+nothing. `ABANDON_MINUTES` later (default 30, well past every UPI collect expiry
+and 3DS timeout), `POST /api/sweep` turns the ones still unpaid into
+`CHECKOUT_ABANDONED` cases and they go through the same gates, ladder and engine
+as everything else. It is idempotent on `order_id`, and the clock starts at the
+order's `created_at`, not at the call — so a backed-up queue delivering it late
+does not buy the customer a fresh 30 minutes of grace, and a retry cannot defer
+the window forever.
+
+**This was a real bug, found late.** The watch list used to be fed by an
+`order.created` webhook. Every unit test passed, because every unit test handed it
+a hand-built `order.created` payload — and in production the sweeper would have
+swept an empty table forever. It is the shape every entry in
+[Bugs found in our own measurements](#bugs-found-in-our-own-measurements) shares:
+a green light attached to nothing. An instrument that only ever runs on its own
+fixture is not evidence that it works. `tests/test_order_watch.py` pins the fix,
+and its load-bearing assertion
+(`test_abandonment_needs_no_order_created_webhook`) exercises the whole source
+with zero webhook deliveries.
+
+Fixture 08 (`08_order_created_then_abandoned.json`) still replays, so the demo
+button works — but it replays an event Razorpay never sends, and
+`test_fixture_replay_and_the_api_produce_the_same_watch_row` pins that the two
+feeds cannot drift.
+
 ---
 
 ## Dashboard
@@ -611,8 +676,8 @@ verification is unaffected — it is `hmac` from the stdlib and needs no SDK.
 ## Tests
 
 ```bash
-PYTHONPATH=. pytest tests/ -q                  # 335 passed
-docker compose exec app pytest tests/ -q       # 334 passed, 1 skipped
+PYTHONPATH=. pytest tests/ -q                  # 349 passed
+docker compose exec app pytest tests/ -q       # 348 passed, 1 skipped
 ```
 
 The one that skips in the image is `test_abandonment.py:314`, which shells out to
