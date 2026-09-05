@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS decisions (
   candidates JSON, config_version TEXT, notes TEXT, highlight TEXT);
 CREATE INDEX IF NOT EXISTS ix_dec_case ON decisions(case_id, decided_at);
 CREATE INDEX IF NOT EXISTS ix_dec_hl ON decisions(run_id, highlight);
+-- The live path asks "what was decided since midnight" (the Ops tab) and "what
+-- changed in the last half hour" (the feed), and this table grows by one row per
+-- open case per second, so both were full scans of a table that gets bigger all
+-- day. Additive: the benchmark writes decisions in one batch and never queries
+-- them this way.
+CREATE INDEX IF NOT EXISTS ix_dec_live ON decisions(run_id, decided_at);
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, dedupe_key TEXT UNIQUE NOT NULL,

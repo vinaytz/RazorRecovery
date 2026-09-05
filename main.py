@@ -96,12 +96,13 @@ async def lifespan(app_: FastAPI):
 
 app = FastAPI(title="RazorRecovery", lifespan=lifespan)
 
-from app.api import chaos, dashboard, ops, replay, webhooks  # noqa: E402
+from app.api import chaos, dashboard, feed, ops, replay, webhooks  # noqa: E402
 app.include_router(dashboard.router)
 app.include_router(replay.router)
 app.include_router(chaos.router)
 app.include_router(webhooks.router)
 app.include_router(ops.router)
+app.include_router(feed.router)
 
 
 def _results() -> dict:

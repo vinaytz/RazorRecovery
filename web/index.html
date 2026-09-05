@@ -88,6 +88,38 @@
   /* Five numbers, one row. A sixth empty slot in a bordered grid reads as a cell
      that failed to load. */
   #ops_today{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+
+  /* The feed. A time column of fixed width so the timestamps line up as a ruler
+     down the left, and a rule between rows rather than a card around each: sixty
+     cards is a wall, sixty lines is a list you can read. */
+  .feed{margin-top:8px;border-top:1px solid var(--line)}
+  .ev{display:grid;grid-template-columns:76px 15px 1fr;gap:0 12px;
+    padding:9px 2px;border-bottom:1px solid #f0f1f3;align-items:baseline}
+  .ev .t{color:var(--muted);font-size:12.5px;
+    font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  /* The dot is the only colour in a row. It is what makes a page of text
+     scannable: money arriving is green, a stop is red, everything else is
+     grey and stays out of the way. */
+  .ev .dot{width:7px;height:7px;border-radius:50%;background:#c9ced5;
+    align-self:center;margin-top:1px}
+  .ev.good .dot{background:var(--engine)} .ev.bad .dot{background:var(--stop)}
+  .ev.warn .dot{background:var(--warn)}   .ev.stop .dot{background:var(--stop)}
+  .ev.act .dot{background:#3a5a8c}
+  .ev .h{font-size:14px}
+  .ev .d{color:var(--muted);font-size:13px;margin-top:2px}
+  .ev .d code{background:#f2f3f5;border-radius:4px;padding:1px 5px;font-size:12px}
+  .ev .cnt{color:var(--muted);font-size:12.5px;font-weight:500;
+    font-variant-numeric:tabular-nums}
+  .ev .amt{font-variant-numeric:tabular-nums}
+  .ev.stop .h,.ev.bad .h{color:var(--stop)}
+  .ev .gates{margin-top:4px;font-size:12.5px;color:var(--warn)}
+  /* A row that arrived on this poll. It fades from a tint to nothing over a
+     second and a half -- enough to catch the eye on a filmed demo, short enough
+     that a still screenshot is never mid-animation. */
+  @keyframes settle{from{background:#eef3fa}to{background:transparent}}
+  .ev.fresh{animation:settle 1.5s ease-out}
+  .feedhead{display:flex;justify-content:space-between;align-items:baseline;
+    gap:16px;flex-wrap:wrap}
 </style>
 </head>
 <body><div class="wrap">
@@ -105,6 +137,7 @@
   <button onclick="tab('s1',this)">Cases</button>
   <button onclick="tab('s2',this)">Decision</button>
   <button onclick="tab('s3',this)">Live ops</button>
+  <button onclick="tab('s4',this)">Demo</button>
   <button onclick="tab('s5',this)">Ops</button>
 </nav>
 
@@ -207,7 +240,38 @@
   </div>
 </section>
 
-<section id="s5">
+<section id="s4">
+  <div class="panel">
+    <div class="feedhead">
+      <div>
+        <h3>What is happening right now</h3>
+        <div class="lede">Every webhook, gate verdict, decision, action and rupee,
+          newest first. Nothing here is written by hand — it is read back out of
+          the same tables the engine decides from, so if it is on this page it is
+          in the ledger, and if it is not, it did not happen.</div>
+      </div>
+      <div class="small" id="feed_meta"></div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <select id="feed_window" onchange="loadFeed(true)">
+        <option value="5">Last 5 minutes</option>
+        <option value="30" selected>Last 30 minutes</option>
+        <option value="180">Last 3 hours</option>
+        <option value="1440">Today</option>
+      </select>
+      <select id="feed_kind" onchange="renderFeed()">
+        <option value="">Everything</option>
+        <option value="decision">Decisions only</option>
+        <option value="execute">Actions taken</option>
+        <option value="settle">Money arriving</option>
+        <option value="operator">Operator actions</option>
+      </select>
+      <button class="act" id="feed_pause" onclick="feedFreeze()">Pause the feed</button>
+    </div>
+    <div class="feed" id="feed"></div>
+  </div>
+</section>
+
   <!-- The stop button is first, largest, and the only red thing on the page.
        Everything else on this tab is there to make an operator confident enough
        to press it: what it stops, what it keeps doing, and what it costs. -->
@@ -329,7 +393,7 @@ let BOARD = null, chart = null;
 
 // Tabs are addressable: /#ops opens the Ops tab directly. A filmed demo needs to
 // land on a tab, not click its way to one, and a screenshot needs a URL.
-const TABS = {scoreboard:"s0", cases:"s1", decision:"s2", live:"s3", ops:"s5"};
+const TABS = {scoreboard:"s0", cases:"s1", decision:"s2", live:"s3", demo:"s4", ops:"s5"};
 const TABNAME = Object.fromEntries(Object.entries(TABS).map(([k,v])=>[v,k]));
 
 function tab(id, el){
@@ -338,6 +402,7 @@ function tab(id, el){
   document.querySelectorAll("section").forEach(s=>s.classList.toggle("on", s.id===id));
   history.replaceState(null, "", "#" + (TABNAME[id] || ""));
   if(id==="s5") loadOps();
+  if(id==="s4") loadFeed(true);
 }
 
 function openHash(){
@@ -575,7 +640,9 @@ async function openCase(id){
 async function showDecision(id){
   const r = await (await fetch("/api/replay/"+id)).json();
   const s = r.snapshot;
-  document.querySelectorAll("nav button")[2].click();
+  // By id, not by position: the nav grew a tab and an index would have moved.
+  [...document.querySelectorAll("nav button")]
+    .find(b => (b.getAttribute("onclick")||"").includes("'s2'")).click();
   $("#dec").innerHTML = `
   <div class="panel"><h3>What we knew</h3><div class="kv">
     <div>Obligation</div><div>${s.obligation_id} · ${s.kind}</div>
@@ -898,9 +965,124 @@ async function opsQuietReset(){
   opsPoll();
 }
 
+// -- the feed ---------------------------------------------------------------
+// Assembled server-side from the tables; this end only draws it. Two pieces of
+// state: what we last drew (so a new row can be marked as new) and whether the
+// operator has frozen it (so a row can be read without it scrolling away).
+let FEED = [], FSEEN = new Set(), FROZEN = false, FMETA = null;
+
+const KINDWORD = {webhook:"Webhook", case:"Case", decision:"Decision",
+                  schedule:"Scheduled", execute:"Action", contact:"Contact",
+                  settle:"Settlement", operator:"Operator"};
+
+function feedFreeze(){
+  FROZEN = !FROZEN;
+  $("#feed_pause").textContent = FROZEN ? "Resume the feed" : "Pause the feed";
+  $("#feed_pause").classList.toggle("on", FROZEN);
+  if(!FROZEN) loadFeed();
+}
+
+async function loadFeed(reset){
+  if(FROZEN && !reset) return;
+  if(reset){ FEED = []; FSEEN = new Set(); $("#feed").innerHTML = ""; }
+  const mins = $("#feed_window").value;
+  let r;
+  try { r = await (await fetch(`/api/feed?minutes=${mins}&limit=80`)).json(); }
+  catch(e){ return; }                       // a dropped poll is not worth a banner
+  FEED = r.events || []; FMETA = r;
+  renderFeed();
+}
+
+// A stable identity for a row, so the same event is not re-highlighted every
+// second. Collapsed rows change as they grow -- a wait that has held for 40 ticks
+// is the same event it was at 39 -- so the count is deliberately not in the key.
+const evKey = e => [e.kind, e.at, e.title.replace(/ ×\d+$/, ""),
+                    e.case_id || "", e.decision_id || "",
+                    e.action_id || ""].join("|");
+
+function renderFeed(){
+  const want = $("#feed_kind").value;
+  const rows = FEED.filter(e => !want || e.kind === want);
+  const box = $("#feed");
+
+  if(!rows.length){
+    // An empty feed on a live system means one of two specific things, and
+    // saying which is more use than "no data".
+    const quiet = FEED.length
+      ? `Nothing of that kind in the last ${FMETA.window_minutes} minutes.
+         Switch the filter back to <b>Everything</b>, or widen the window.`
+      : `Nothing has happened in the last ${FMETA ? FMETA.window_minutes : 30}
+         minutes. Widen the window above, or send the engine something to do:
+         <code>POST /api/demo/fail</code> opens a case, and the Live ops tab has
+         a button for it.`;
+    box.innerHTML = `<div class="empty">${quiet}</div>`;
+    return;
+  }
+
+  const seen = new Set();
+  box.innerHTML = rows.map(e => {
+    const k = evKey(e), isNew = !FSEEN.has(k);
+    seen.add(k);
+    return `<div class="ev ${e.tone||""} ${isNew && FSEEN.size ? "fresh" : ""}">
+      <div class="t">${(e.at||"").slice(11,19)}</div>
+      <div class="dot"></div>
+      <div>
+        <div class="h">${feedTitle(e)}</div>
+        <div class="d">${feedDetail(e)}</div>
+        ${(e.gates_failed||[]).length
+          ? `<div class="gates">${e.gates_failed.map(esc).join(" · ")}</div>` : ""}
+      </div></div>`;
+  }).join("");
+  FSEEN = seen;
+
+  const n = FMETA ? FMETA.candidates : rows.length;
+  $("#feed_meta").innerHTML =
+    `${rows.length} of ${n} in the window · polling every second` +
+    (FMETA && FMETA.time_scale > 1 ? ` · TIME_SCALE ${FMETA.time_scale}×` : "") +
+    (FROZEN ? " · <b>frozen</b>" : "");
+}
+
+function feedTitle(e){
+  let t = esc(e.title);
+  // One place decides how a count is written, for every kind of row that can
+  // stand for more than one thing.
+  if(e.cases > 1) t += ` <span class="cnt">${e.cases} cases</span>`;
+  if(e.amount) t += ` <span class="amt">· ${R(e.amount)}</span>`;
+  // A decision line replays. That is the whole promise of the project, one click
+  // from the feed: this is what the engine knew, and this is every gate it asked.
+  if(e.kind === "decision" && e.decision_id)
+    t += ` <a href="#" onclick="showDecision('${e.decision_id}');return false"
+             class="small">replay</a>`;
+  return `<span class="small" style="color:#9aa0a8">${KINDWORD[e.kind]||""}</span>
+          &nbsp; ${t}`;
+}
+
+function feedDetail(e){
+  const bits = [];
+  if(e.detail) bits.push(esc(e.detail));
+  // How long a collapsed wait has held. The engine asked the same question 993
+  // times and got the same answer; that is one line and a number, not 993 lines.
+  if(e.repeats > 1)
+    bits.push(`held ${e.repeats}× until ${(e.held_until||"").slice(11,19)}`);
+  const ids = e.case_id ? [e.case_id] : (e.case_ids || []);
+  if(ids.length){
+    const more = (e.cases || ids.length) - ids.length;
+    bits.push(ids.map(c =>
+      `<code onclick="openCase('${c}')" style="cursor:pointer">${esc(c)}</code>`)
+      .join(" ") + (more > 0 ? ` and ${more} more` : ""));
+  }
+  return bits.join(" · ");
+}
+
+function esc(s){
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
 // Only while the Live ops tab is showing. Polling a hidden tab every second is a
 // query the judge cannot see the result of.
 setInterval(()=>{ if($("#s3").classList.contains("on")) loadLive(); }, 1000);
+setInterval(()=>{ if($("#s4").classList.contains("on")) loadFeed(); }, 1000);
 // The ops poll is the exception: the pause banner has to be right on every tab.
 setInterval(opsPoll, 2000);
 opsScopeChanged();
