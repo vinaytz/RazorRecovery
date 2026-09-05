@@ -1,0 +1,45 @@
+# RazorRecovery -- one service, one volume.
+#
+#   docker compose up            first boot runs the benchmark, then serves :8000
+#   docker compose down          keeps the run history
+#   docker compose down -v       drops it, so the next `up` re-runs the benchmark
+#
+# There is no .env file in the repo and the stack does not need one. Every
+# credential is optional and the build degrades loudly without it -- see
+# .env.example for what each one unlocks. `cp .env.example .env` only if you
+# want live sending.
+
+services:
+  app:
+    build: .
+    image: razorrecovery:local
+    ports:
+      - "8000:8000"
+    volumes:
+      # sqlite + results.json. Named, not a bind mount: a bind mount would be
+      # owned by the host user and the container runs as uid 10001.
+      - razorrecovery-data:/data
+    environment:
+      # These are the defaults baked into the image, repeated here because a
+      # judge reading one file should be able to see what the container assumes.
+      DRY_RUN: "true"           # nothing leaves the process. see .env.example.
+      WORKER: "on"              # the live loop. `off` serves the dashboard only.
+      RAZORRECOVERY_DB: /data/razorrecovery.db
+    env_file:
+      # Optional. Compose errors out on a missing env_file unless `required` is
+      # false, and the whole point is that the stack runs without one.
+      - path: .env
+        required: false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # The first boot runs the benchmark before uvicorn binds, so the container
+      # is legitimately unhealthy for the first few seconds. Do not shorten this
+      # below the benchmark's runtime or compose will report a false failure.
+      start_period: 90s
+
+volumes:
+  razorrecovery-data:

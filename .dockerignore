@@ -1,0 +1,27 @@
+# Keep the build context small and keep host state out of the image.
+# The .venv alone is ~400MB and would be copied into the builder for nothing.
+.venv/
+.git/
+.gitignore
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.llm_cache/
+
+# Generated at runtime, on the /data volume. An image that shipped a prebuilt
+# results.json would show numbers the container never computed.
+*.db
+*.db-shm
+*.db-wal
+results*.json
+server.log
+
+# Never in an image.
+.env
+
+docs/
+scripts/capture_pre_3a.py
+TASKS.md
+CLAUDE.md
+graphify-out/

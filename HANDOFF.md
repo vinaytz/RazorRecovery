@@ -70,11 +70,16 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
   false chase /10k   engine 0.0   baseline 145.0
   left alone         1,021 cases  (Rs 1,178,987 deliberately not chased)
   written off        923 cases  (Rs 1,468,214)
-  double charges     not applicable -- no live debits are issued (item 3d)
 ```
 
 `md5 763fcd5cb36db1593189c08f2c59c70e` over that stdout. Item 3z moved it (each
 arm now gets its own copy of the world); 3c moved it before that.
+
+There is no `double charges` line, and there should not be. It was removed at
+item 3d: nothing ever incremented it, so it could only report 0, and a safety
+counter stuck at 0 by the absence of the thing it measures reads as a prevented
+harm. `/api/scoreboard` now returns `"not applicable -- no live debits are
+issued"` with the reason attached. See README, "three dead metrics".
 
 ### Two uncertainty numbers, not one
 

@@ -20,11 +20,39 @@ forbidden to touch. It still recovers 26.9%, because that money was arriving
 anyway. **Every recovery tool that bills on gross would have invoiced for all of
 it.** We subtract it and report the remainder.
 
+## Run it
+
+```bash
+docker compose up
 ```
+
+That is the whole thing. First boot runs the benchmark (about ten seconds),
+then serves the dashboard on **http://localhost:8000**. No `.env` is needed and
+none is shipped: every credential is optional and every one of them degrades
+loudly — the Ops tab names what is missing and what it costs. `.env.example`
+documents each variable and what you lose without it.
+
+`docker compose down` keeps the run history; `docker compose down -v` drops the
+volume, and the next `up` re-runs the benchmark from scratch.
+
+Without Docker:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate     # Python 3.10-3.13, see below
 pip install -r requirements.txt
 PYTHONPATH=. python run_benchmark.py --n 2000     # the experiment
 PYTHONPATH=. python main.py                       # dashboard -> localhost:8000
 ```
+
+**The pins need Python 3.10–3.13.** `numpy==2.1.1` publishes no wheel for 3.14,
+so on a host whose `python3` is 3.14 that `pip install` tries to compile numpy
+from source and fails. The pins are exact on purpose — the md5 below is over a
+specific dependency set — so the fix is to point the venv at a 3.12 or 3.13
+interpreter, or use Docker, which pins it for you.
+
+`run_benchmark.py` must run before `main.py`: `results.json` and the database
+are both generated output and both gitignored, so a fresh clone has neither and
+the dashboard has nothing to show. The Docker entrypoint does this for you.
 
 In the default `DRY_RUN` build no message leaves the process, so `contacts_sent` is
 0 and settlements attribute as `SELF_RECOVERED`. Attribution declines to claim
