@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 from app.api import webhooks
 from app.controllers import ingest as ingest_ctl
@@ -255,6 +255,74 @@ def checkouts():
                  "webhook for closing a tab, so the sweeper looks for the payment "
                  "that never arrived"),
     }
+
+
+@router.post("/orders/watch")
+def watch_order(order_id: str | None = None, amount: int | None = None,
+                customer_id: str | None = None, method: str | None = None,
+                contact: str | None = None, email: str | None = None,
+                name: str | None = None, receipt: str | None = None,
+                created_at: int | None = None, body: dict | None = Body(None)):
+    """MERCHANT-SIDE INTEGRATION. Start the abandonment clock on one order.
+
+    THIS ENDPOINT EXISTS BECAUSE RAZORPAY DOES NOT EMIT AN ORDER-CREATED WEBHOOK.
+    There is no `order.created` in their event list. Order creation is a
+    server-side call the merchant makes, so the gateway has nothing to announce --
+    and abandoned-checkout detection is the one at-risk source that starts from an
+    absence, which means something has to tell us the order exists before we can
+    notice nobody paid for it. That something is the merchant's backend:
+
+        order = client.order.create({"amount": 289900, "currency": "INR", ...})
+        requests.post("http://<host>/api/orders/watch", json=order)   # <- one line
+
+    Post the order object Razorpay returned, verbatim -- `id`, `amount`, `receipt`,
+    `notes` and `created_at` are read straight off it, so there is nothing to map.
+    Reachability (`contact`/`email`/`name`) is read from `notes`, which is where a
+    checkout integration already puts it; without it the sweeper can open a case
+    for a customer it has no way to reach.
+
+    Opens NO case and sends NOTHING. It writes one WATCHING row. The sweeper
+    decides later, and only after `ABANDON_MINUTES` of silence, whether the
+    absence meant abandonment.
+
+    Idempotent on `order_id`: a retried call does not reset the window.
+    Query params override the body, so the same endpoint is curl-able by hand.
+    """
+    b = body if isinstance(body, dict) else {}
+    notes = b.get("notes") if isinstance(b.get("notes"), dict) else {}
+
+    oid = order_id or b.get("id") or b.get("order_id")
+    amt = amount if amount is not None else b.get("amount")
+    if amt is None:
+        amt = b.get("amount_due")
+    if not oid:
+        raise HTTPException(400, {
+            "error": "order_id is required",
+            "how": "POST the order object from client.order.create() as JSON, or "
+                   "pass ?order_id=...&amount=...",
+            "why": "Razorpay emits no order-created webhook, so the merchant's "
+                   "backend is the only thing that knows this order exists"})
+    if not isinstance(amt, int) or amt <= 0:
+        raise HTTPException(400, {
+            "error": "amount must be a positive integer in paise",
+            "got": amt,
+            "why": "money is int paise everywhere -- a float amount is a bug, and "
+                   "an order worth nothing is not at-risk revenue"})
+
+    out = ingest_ctl.watch_order(
+        con(), order_id=str(oid), amount=amt,
+        customer_id=customer_id or b.get("customer_id") or notes.get("customer_id"),
+        method=method or b.get("method") or notes.get("method"),
+        contact=contact or notes.get("contact") or b.get("contact"),
+        email=email or notes.get("email") or b.get("email"),
+        name=name or notes.get("name") or b.get("name"),
+        receipt=receipt or b.get("receipt"),
+        created_at=ingest_ctl.epoch_iso(
+            created_at if created_at is not None else b.get("created_at")),
+        now=datetime.now(), source="merchant_api")
+    out["integration"] = ("called by the merchant's backend after orders.create() -- "
+                          "Razorpay does not broadcast order creation")
+    return out
 
 
 @router.post("/sweep")

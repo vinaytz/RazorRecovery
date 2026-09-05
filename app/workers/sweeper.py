@@ -6,13 +6,25 @@ tells us, we open a case. Checkout abandonment has no such event -- there is no
 `checkout.abandoned` webhook, because closing a tab is not something a payment
 gateway can observe. The signal is an ABSENCE:
 
-    `order.created` arrived, and `payment.captured` never did.
+    the order exists, and `payment.captured` never arrived.
 
 An absence cannot be pushed to us, so it has to be swept for. That is the only
 architectural difference between this source and the failed-payment source, and
 it is confined to this file. Once the sweeper decides a checkout was abandoned it
 writes an obligation and a case exactly like `ingest._open_case` does, and from
 that moment on the case is indistinguishable to everything downstream:
+
+WHERE THE FIRST HALF OF THE SIGNAL COMES FROM, and why it is not a webhook.
+Knowing the order exists is the input to this whole file, and **Razorpay does not
+broadcast order creation** -- there is no `order.created` in their webhook event
+list, because creating an order is a server-side call the merchant makes and a
+gateway cannot announce something it did not observe. So this source has one
+dependency on merchant code that the failed-payment source does not:
+`POST /api/orders/watch`, called right after `orders.create()`. It is one line in
+their backend, it is documented in README, and it is the ONLY production feed.
+An earlier draft of this module read an `order.created` webhook, which meant the
+sweeper would have swept an empty table forever in production while every unit
+test passed on a hand-built payload. `tests/test_order_watch.py` pins the fix.
 
     same CaseSnapshot     -- CHECKOUT_ABANDONED was already in FailureClass
     same gates            -- G0 holdout first, then the rest, unchanged
@@ -94,7 +106,7 @@ def sweep(con, now: datetime | None = None, minutes: int | None = None,
         case_id = _open_abandoned_case(con, row, now)
         store.resolve_checkout(
             con, oid, "ABANDONED", now.isoformat(),
-            f"no payment within {window} minutes of order.created")
+            f"no payment within {window} minutes of order creation")
         opened.append({"order_id": oid, "case_id": case_id, "amount": row["amount"]})
 
     if opened:

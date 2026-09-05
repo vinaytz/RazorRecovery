@@ -43,6 +43,19 @@ FAILURE_EVENTS = frozenset({
 # window in which a failure can happen by NOTHING happening. It opens no case. It
 # puts the order on a watch list, and `app/workers/sweeper.py` decides later
 # whether the silence meant abandonment. See that module's docstring.
+#
+# RAZORPAY DOES NOT EMIT `order.created`. It is not in their webhook event list
+# and it never fires in production. Order creation is a server-side API call the
+# MERCHANT makes -- `client.order.create(...)` -- so the merchant already knows it
+# happened and the gateway has nothing to announce. `order.paid` is the real
+# order-scoped event, and by then the debt is gone.
+#
+# This set is therefore kept for exactly two things: replaying
+# `fixtures/webhooks/08_order_created_then_abandoned.json` in the demo, and the
+# unit tests that pin the watch-list semantics. The production feed is
+# `POST /api/orders/watch`, which the merchant's backend calls right after
+# `orders.create()`. Both routes land in `watch_order()` below so they cannot
+# drift. `tests/test_order_watch.py` pins that this set is fixture-only.
 WATCH_EVENTS = frozenset({"order.created"})
 
 DOWNTIME_EVENTS = frozenset({
@@ -253,6 +266,49 @@ def _open_case(con, payload: dict, oid: str, now: datetime, llm=None) -> dict:
             "verdict": f"case opened, classified {fc.value}"}
 
 
+def watch_order(con, *, order_id: str, amount: int, customer_id: str | None = None,
+                method: str | None = None, contact: str | None = None,
+                email: str | None = None, name: str | None = None,
+                receipt: str | None = None, created_at: str | None = None,
+                now: datetime, source: str = "api") -> dict:
+    """Start the abandonment clock on one order. Opens no case. Sends nothing.
+
+    THE ONLY WAY AN ORDER GETS ON THE WATCH LIST, and it has two callers for one
+    reason: **Razorpay does not broadcast order creation.** There is no
+    `order.created` webhook, so the absence-detection source (`app/workers/sweeper.py`)
+    cannot be fed by the gateway the way the failed-payment source is. It has to be
+    fed by the merchant, one call, right after `orders.create()` returns:
+
+        order = client.order.create({...})
+        requests.post("http://<host>/api/orders/watch", json=order)
+
+    That is the whole integration. It is a real dependency on merchant code and it
+    is written down here, in README, and in the endpoint rather than left for
+    someone to discover when the sweeper never opens a case in production.
+
+    The other caller is `_watch_checkout`, the fixture-replay path. Both land here
+    so the clock-start semantics cannot drift between demo and production.
+
+    Idempotent: `store.watch_checkout` is INSERT OR IGNORE on `order_id`, so
+    calling this twice does NOT reset the window. A merchant retrying the call --
+    or an at-least-once queue delivering it twice -- cannot push an order out of
+    the abandonment window forever.
+    """
+    fresh = store.watch_checkout(
+        con, order_id=order_id, customer_id=customer_id or f"cust_{order_id}",
+        amount=int(amount), method=(method or "unknown"),
+        contact=contact, email=email, name=name, receipt=receipt,
+        created_at=created_at or now.isoformat(), seen_at=now.isoformat())
+
+    window = sweeper.abandon_minutes()
+    return {"order_id": order_id, "watching": True, "fresh": fresh,
+            "source": source, "amount": int(amount), "abandon_minutes": window,
+            "action": "checkout_watched" if fresh else "checkout_already_watched",
+            "verdict": (f"order on the watch list -- NO case opened. if no payment "
+                        f"arrives within {window} minutes the sweeper opens one")
+            if fresh else "already watching this order -- the clock is not reset"}
+
+
 def _watch_checkout(con, payload: dict, oid: str, now: datetime) -> dict:
     """An order exists and nobody has paid it yet. Start the clock, open nothing.
 
@@ -260,12 +316,14 @@ def _watch_checkout(con, payload: dict, oid: str, now: datetime) -> dict:
     gets loud. An order that is 200 milliseconds old is not at risk -- the
     customer is looking at the payment page. Opening a case here would put every
     successful checkout the merchant has ever had into the recovery funnel.
+
+    Reachable only by replaying an `order.created` payload, which Razorpay never
+    sends -- see WATCH_EVENTS above. The production feed is `watch_order()` via
+    `POST /api/orders/watch`; this extracts the same fields from a webhook-shaped
+    body and delegates to it.
     """
     order = (_entities(payload).get("order") or {}).get("entity", {})
     pay = _payment_of(payload)
-    amount = amount_of(payload)
-    cust = str(order.get("customer_id") or pay.get("customer_id")
-               or pay.get("contact") or f"cust_{oid}")
 
     # An order entity carries no `contact`/`email` of its own -- there is no payment
     # yet, so there is no payer on it. What reachability exists is in `notes`, put
@@ -273,20 +331,16 @@ def _watch_checkout(con, payload: dict, oid: str, now: datetime) -> dict:
     # opens a case for a customer it has no way to email, which G13 would then
     # spend a contact slot discovering.
     notes = pay.get("notes") if isinstance(pay.get("notes"), dict) else {}
-    fresh = store.watch_checkout(
-        con, order_id=oid, customer_id=cust, amount=amount,
+    return watch_order(
+        con, order_id=oid, amount=amount_of(payload),
+        customer_id=str(order.get("customer_id") or pay.get("customer_id")
+                        or pay.get("contact") or f"cust_{oid}"),
         method=(order.get("method") or pay.get("method") or "unknown"),
         contact=pay.get("contact") or notes.get("contact"),
         email=pay.get("email") or notes.get("email"),
         name=_name_of(payload), receipt=order.get("receipt"),
-        created_at=_order_created_at(order, payload, now), seen_at=now.isoformat())
-
-    window = sweeper.abandon_minutes()
-    return {"action": "checkout_watched" if fresh else "checkout_already_watched",
-            "amount": amount, "abandon_minutes": window,
-            "verdict": (f"order on the watch list -- NO case opened. if no payment "
-                        f"arrives within {window} minutes the sweeper opens one")
-            if fresh else "already watching this order -- the clock is not reset"}
+        created_at=_order_created_at(order, payload, now), now=now,
+        source="webhook_replay")
 
 
 def _order_created_at(order: dict, payload: dict, now: datetime) -> str:
@@ -353,7 +407,7 @@ def _record_downtime(con, payload: dict, event: str, now: datetime) -> dict:
     method = (d.get("method") or "").strip().lower() or "unknown"
     did = str(d.get("id") or payload.get("id") or f"down_{method}_{now.isoformat()}")
     resolved = event.endswith(".resolved")
-    ends_at = _epoch_iso(d.get("end"))
+    ends_at = epoch_iso(d.get("end"))
 
     if resolved:
         n = store.resolve_downtime(con, downtime_id=did, method=method,
@@ -368,7 +422,7 @@ def _record_downtime(con, payload: dict, event: str, now: datetime) -> dict:
         con, downtime_id=did, method=method,
         instrument=json.dumps(d["instrument"]) if isinstance(d.get("instrument"), dict) else None,
         severity=(d.get("severity") or None), scheduled=bool(d.get("scheduled")),
-        began_at=_epoch_iso(d.get("begin")) or now.isoformat(), ends_at=ends_at,
+        began_at=epoch_iso(d.get("begin")) or now.isoformat(), ends_at=ends_at,
         seen_at=now.isoformat())
 
     # The verdict describes what is true after the write, not what the event asked
@@ -392,7 +446,7 @@ def _record_downtime(con, payload: dict, event: str, now: datetime) -> dict:
             "blocking": outcome != "already_resolved", "verdict": verdict}
 
 
-def _epoch_iso(ts) -> str | None:
+def epoch_iso(ts) -> str | None:
     """Razorpay's Unix seconds -> iso. None stays None, and that is the point.
 
     `end` is null on a live outage. Returning None here is what keeps
