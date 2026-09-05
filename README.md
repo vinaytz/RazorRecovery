@@ -1,10 +1,7 @@
 <h1 align="center">RazorRecovery</h1>
 
 <p align="center">
-  <b>The only payment recovery engine that can prove what it caused.
-
-> ### **₹9,54,052 incremental** · **75% of the perfect-play ceiling** · **0 false chases per 10k**
-> vs a fixed-schedule baseline's 145 per 10k, on the same 2,000 failed payments.</b>
+  <b>The only payment recovery engine that can prove what it caused.</b>
 </p>
 
 <p align="center">
@@ -16,15 +13,42 @@
 
 ---
 
-Most recovery tools bill merchants for money that was arriving anyway. This one holds out a control group it is forbidden to touch — and only counts the gap.
+## What this actually is
 
-**₹9,54,052 incremental. 75% of the perfect-play ceiling. Zero false chases against a baseline's 145 per 10k.**
+A failed payment isn't lost money. Some customers pay on their own — a bank glitch, they retry, done. Others never pay. Some only pay if you nudge them. And some, if you remind them their subscription failed, remember they meant to cancel.
 
-The story is not the number. The story is that the number is honest — and this README tells you exactly why.
+**Every recovery tool on the market bills merchants for the first group as if the tool caused it.** They can't tell the difference between "we recovered this" and "this arrived anyway." Nobody can, without a control group.
+
+So this one has a control group. A random slice of failed payments the engine is **forbidden to touch** — no retry, no email, nothing. Whatever recovers in that slice is what would have arrived anyway. We subtract it, and only count the gap.
+
+> ### ₹9,54,052 incremental · 75% of the perfect-play ceiling · 0 false chases per 10k
+> vs a fixed-schedule baseline's 145 per 10k, on the same 2,000 failed payments.
 
 ![Scoreboard: four-bar comparison showing control Rs 8.9L, engine Rs 18.4L, with the Rs 9.5L incremental gap](docs/images/stats.png)
 
-Most recovery tools report gross recovered. This one runs a permanent holdout group — cases the engine is *forbidden* to touch — and only counts the gap. Everything downstream (uplift scoring, negative-uplift refusals, replayable decisions, RBI-compliant gates) follows from that one choice.
+## The product in one picture
+
+Razorpay webhooks a listening worker
+│ │
+▼ ▼
+┌─ ears ─────────┐ ┌─ brain ──────────────┐
+│ verify HMAC │────────────│ 15 gates, in order │
+│ dedupe │ snapshot │ ladder step │
+│ classify │ │ uplift score │
+└────────────────┘ │ (a pure function) │
+└──────────┬───────────┘
+┌─ mirror ───────┐ │
+│ dashboard │ ▼
+│ replay any │◄──── audit ──┐ ┌─ hands ─────────┐
+│ decision │ └──│ re-check state │
+└────────────────┘ │ send / abort │
+│ record outcome │
+└─────────────────┘
+
+
+**Ears** listen. **Brain** decides. **Hands** act. **Mirror** proves.
+
+The brain is a *pure function* — no database, no clock, no LLM inside. That's what lets any decision replay identically hours later, and it's what makes the audit trail real instead of retrofitted.
 
 ## Run it
 
