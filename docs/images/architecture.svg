@@ -1,0 +1,195 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" font-family="'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpjMzU2ZDJkMi01ZDEwLTRlNmItODljMC05MzRkMGNjMzEzYzUAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaNpaQjh2YIa7xa76sYJBOnwAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDoyNzc5MDFlZC0yOTEyLTRmZWYtOGU0YS1kYTcxMGU5MGNlYjBscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNobisd18yLHzIIyYdRc79A0wAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg5xrd7AjJAqAkyFxhNM2LFxffNzv0Cfa7dzTw+voK722kZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaGEoeuJTD0fbgCU54ptubOsAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRNAAAAAAAAAAAAAAAAAGRoYXNoWCCMVTiRC+wD4Rm4I4fLhXJWv6aK2s6aywtWz88j09plQGRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBjVZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmMzNTZkMmQyLTVkMTAtNGU2Yi04OWMwLTkzNGQwY2MzMTNjNS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmNlYTFmNjVjLWQwNTEtNDI5ZS04NGIzLTUyNDUyMGQ5YjU0OHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDnGt3sCMkCoCTIXGE0zYsXF983O/QJ9rt3NPD6+grvbaJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggvJfHc1VF8pllOrYu0rJrwhYKAmxmsiyZqjl4aMryZAOiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgguOqlBo+avB74HGp6xGScfAM8ZhI/uc5cxquazrqYJhV0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQNk+LWCfRvBejdKCCDQqrr5oT0CV56vrGCeR3q6aEME3edNg6m6cpE4bhKQxhoGZ4r1qXyXnd3JEx5TB+e9l01A=</c2pa:manifest></metadata>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0e1116"/>
+      <stop offset="100%" stop-color="#0a0d11"/>
+    </linearGradient>
+    <linearGradient id="brainFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f2b22"/>
+      <stop offset="100%" stop-color="#0a1f19"/>
+    </linearGradient>
+    <linearGradient id="cardFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#161b22"/>
+      <stop offset="100%" stop-color="#12161d"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a5563"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="720" fill="url(#bg)"/>
+
+  <g opacity="0.03" stroke="#ffffff" stroke-width="1">
+    <path d="M 0 60 L 1200 60 M 0 120 L 1200 120 M 0 180 L 1200 180 M 0 240 L 1200 240 M 0 300 L 1200 300 M 0 360 L 1200 360 M 0 420 L 1200 420 M 0 480 L 1200 480 M 0 540 L 1200 540 M 0 600 L 1200 600 M 0 660 L 1200 660"/>
+    <path d="M 60 0 L 60 720 M 120 0 L 120 720 M 180 0 L 180 720 M 240 0 L 240 720 M 300 0 L 300 720 M 360 0 L 360 720 M 420 0 L 420 720 M 480 0 L 480 720 M 540 0 L 540 720 M 600 0 L 600 720 M 660 0 L 660 720 M 720 0 L 720 720 M 780 0 L 780 720 M 840 0 L 840 720 M 900 0 L 900 720 M 960 0 L 960 720 M 1020 0 L 1020 720 M 1080 0 L 1080 720 M 1140 0 L 1140 720"/>
+  </g>
+
+  <g font-size="13" fill="#7d8590" font-weight="500" letter-spacing="0.5">
+    <text x="205" y="50" text-anchor="middle">RAZORPAY WEBHOOKS</text>
+    <text x="795" y="50" text-anchor="middle">LISTENING WORKER · EVERY SECOND</text>
+  </g>
+
+  <circle cx="205" cy="75" r="4" fill="#22c55e" opacity="0.9"/>
+  <circle cx="205" cy="75" r="4" fill="#22c55e">
+    <animate attributeName="r" values="4;12;4" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.8;0;0.8" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="795" cy="75" r="4" fill="#22c55e" opacity="0.9"/>
+  <circle cx="795" cy="75" r="4" fill="#22c55e">
+    <animate attributeName="r" values="4;12;4" dur="2s" begin="1s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.8;0;0.8" dur="2s" begin="1s" repeatCount="indefinite"/>
+  </circle>
+
+  <line x1="205" y1="85" x2="205" y2="115" stroke="#4a5563" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="795" y1="85" x2="795" y2="115" stroke="#4a5563" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="60" y="120" width="290" height="200" rx="14" fill="url(#cardFill)" stroke="#30363d" stroke-width="1"/>
+  </g>
+  <text x="85" y="158" font-size="20" font-weight="700" fill="#e6edf3">
+    <tspan font-size="22">👂</tspan>
+    <tspan dx="8" fill="#e6edf3">Ears</tspan>
+  </text>
+  <text x="85" y="180" font-size="12" fill="#7d8590" letter-spacing="0.4">LISTEN · VERIFY · STORE</text>
+  <line x1="85" y1="195" x2="325" y2="195" stroke="#30363d" stroke-width="1"/>
+  <g font-size="14" fill="#c9d1d9">
+    <text x="85" y="220"><tspan fill="#22c55e" font-weight="600">✓</tspan><tspan dx="10">HMAC on raw bytes</tspan></text>
+    <text x="85" y="245"><tspan fill="#22c55e" font-weight="600">✓</tspan><tspan dx="10">dedupe on event id</tspan></text>
+    <text x="85" y="270"><tspan fill="#22c55e" font-weight="600">✓</tspan><tspan dx="10">classify failure</tspan></text>
+    <text x="85" y="295"><tspan fill="#22c55e" font-weight="600">✓</tspan><tspan dx="10">reply 200 · no logic</tspan></text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="650" y="120" width="490" height="280" rx="14" fill="url(#brainFill)" stroke="#22c55e" stroke-width="1.5"/>
+  </g>
+  <ellipse cx="720" cy="155" rx="80" ry="20" fill="#22c55e" opacity="0.08" filter="url(#glow)"/>
+  <text x="675" y="163" font-size="22" font-weight="700">
+    <tspan font-size="24">🧠</tspan>
+    <tspan dx="8" fill="#22c55e">Brain</tspan>
+  </text>
+  <text x="675" y="185" font-size="12" fill="#8b949e" letter-spacing="0.4">A PURE FUNCTION · decide(snapshot, config, model)</text>
+  <line x1="675" y1="200" x2="1115" y2="200" stroke="#22c55e" stroke-width="1" opacity="0.3"/>
+
+  <g font-size="14" fill="#c9d1d9">
+    <g transform="translate(675, 225)">
+      <circle cx="12" cy="0" r="11" fill="#0f2b22" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="12" y="4" text-anchor="middle" font-size="11" font-weight="700" fill="#22c55e">1</text>
+      <text x="35" y="4" fill="#e6edf3" font-weight="600">Snapshot</text>
+      <text x="130" y="4" fill="#7d8590" font-size="13">freeze what we knew</text>
+    </g>
+    <g transform="translate(675, 258)">
+      <circle cx="12" cy="0" r="11" fill="#0f2b22" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="12" y="4" text-anchor="middle" font-size="11" font-weight="700" fill="#22c55e">2</text>
+      <text x="35" y="4" fill="#e6edf3" font-weight="600">Gates</text>
+      <text x="130" y="4" fill="#7d8590" font-size="13">15 hard checks, ordered</text>
+    </g>
+    <g transform="translate(675, 291)">
+      <circle cx="12" cy="0" r="11" fill="#0f2b22" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="12" y="4" text-anchor="middle" font-size="11" font-weight="700" fill="#22c55e">3</text>
+      <text x="35" y="4" fill="#e6edf3" font-weight="600">Ladder</text>
+      <text x="130" y="4" fill="#7d8590" font-size="13">climb one rung</text>
+    </g>
+    <g transform="translate(675, 324)">
+      <circle cx="12" cy="0" r="11" fill="#0f2b22" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="12" y="4" text-anchor="middle" font-size="11" font-weight="700" fill="#22c55e">4</text>
+      <text x="35" y="4" fill="#e6edf3" font-weight="600">Score</text>
+      <text x="130" y="4" fill="#7d8590" font-size="13">uplift, not probability</text>
+    </g>
+    <g transform="translate(675, 357)">
+      <circle cx="12" cy="0" r="11" fill="#0f2b22" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="12" y="4" text-anchor="middle" font-size="11" font-weight="700" fill="#22c55e">5</text>
+      <text x="35" y="4" fill="#e6edf3" font-weight="600">Allocate</text>
+      <text x="130" y="4" fill="#7d8590" font-size="13">contact budget across batch</text>
+    </g>
+  </g>
+
+  <g transform="translate(945, 225)">
+    <rect x="0" y="0" width="170" height="140" rx="10" fill="#0a1f19" stroke="#22c55e" stroke-width="1" opacity="0.9"/>
+    <text x="85" y="28" text-anchor="middle" font-size="12" font-weight="600" fill="#22c55e" letter-spacing="0.5">PURE</text>
+    <line x1="20" y1="40" x2="150" y2="40" stroke="#22c55e" stroke-width="1" opacity="0.3"/>
+    <g font-size="12" fill="#c9d1d9">
+      <text x="20" y="62">✗  no database</text>
+      <text x="20" y="82">✗  no HTTP call</text>
+      <text x="20" y="102">✗  no clock read</text>
+      <text x="20" y="122">✗  no LLM inside</text>
+    </g>
+  </g>
+
+  <line x1="355" y1="220" x2="645" y2="220" stroke="#4a5563" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="4,4"/>
+  <rect x="450" y="205" width="100" height="22" rx="11" fill="#0e1116" stroke="#30363d" stroke-width="1"/>
+  <text x="500" y="220" text-anchor="middle" font-size="12" fill="#7d8590" font-weight="500">snapshot</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="650" y="450" width="490" height="200" rx="14" fill="url(#cardFill)" stroke="#30363d" stroke-width="1"/>
+  </g>
+  <text x="675" y="488" font-size="20" font-weight="700" fill="#e6edf3">
+    <tspan font-size="22">✋</tspan>
+    <tspan dx="8">Hands</tspan>
+  </text>
+  <text x="675" y="510" font-size="12" fill="#7d8590" letter-spacing="0.4">EXECUTE · RE-CHECK · RECORD</text>
+  <line x1="675" y1="525" x2="1115" y2="525" stroke="#30363d" stroke-width="1"/>
+  <g font-size="14" fill="#c9d1d9">
+    <text x="675" y="552">
+      <tspan fill="#f59e0b" font-weight="600">1.</tspan>
+      <tspan dx="8" font-weight="600" fill="#e6edf3">Re-check state.</tspan>
+      <tspan dx="4" fill="#7d8590">Always. First line.</tspan>
+    </text>
+    <text x="675" y="580">
+      <tspan fill="#f59e0b" font-weight="600">2.</tspan>
+      <tspan dx="8" font-weight="600" fill="#e6edf3">Act, or abort if already paid.</tspan>
+    </text>
+    <text x="675" y="608">
+      <tspan fill="#f59e0b" font-weight="600">3.</tspan>
+      <tspan dx="8" font-weight="600" fill="#e6edf3">Timeout →</tspan>
+      <tspan dx="4" fill="#f59e0b" font-family="ui-monospace, monospace">UNKNOWN</tspan>
+      <tspan dx="4" fill="#7d8590">, never</tspan>
+      <tspan dx="4" fill="#7d8590" font-family="ui-monospace, monospace">FAILED</tspan>
+      <tspan dx="4" fill="#7d8590">.</tspan>
+    </text>
+    <text x="675" y="636" font-size="12" font-style="italic" fill="#7d8590">You can cancel a retry. You cannot unsend an email.</text>
+  </g>
+
+  <line x1="895" y1="410" x2="895" y2="445" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <rect x="850" y="415" width="90" height="22" rx="11" fill="#0e1116" stroke="#22c55e" stroke-width="1"/>
+  <text x="895" y="430" text-anchor="middle" font-size="12" fill="#22c55e" font-weight="600">decision</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="60" y="450" width="290" height="200" rx="14" fill="url(#cardFill)" stroke="#30363d" stroke-width="1"/>
+  </g>
+  <text x="85" y="488" font-size="20" font-weight="700" fill="#e6edf3">
+    <tspan font-size="22">🪞</tspan>
+    <tspan dx="8">Mirror</tspan>
+  </text>
+  <text x="85" y="510" font-size="12" fill="#7d8590" letter-spacing="0.4">PROVE · REPLAY · EXPLAIN</text>
+  <line x1="85" y1="525" x2="325" y2="525" stroke="#30363d" stroke-width="1"/>
+  <g font-size="13" fill="#c9d1d9">
+    <text x="85" y="552"><tspan fill="#22c55e">•</tspan><tspan dx="8">4 arms · incremental gap</tspan></text>
+    <text x="85" y="577"><tspan fill="#22c55e">•</tspan><tspan dx="8">every decision explained</tspan></text>
+    <text x="85" y="602"><tspan fill="#22c55e">•</tspan><tspan dx="8">replay: </tspan><tspan font-weight="600" fill="#22c55e">match true</tspan></text>
+    <text x="85" y="627"><tspan fill="#22c55e">•</tspan><tspan dx="8">honesty metrics · what we cut</tspan></text>
+  </g>
+
+  <line x1="645" y1="550" x2="355" y2="550" stroke="#4a5563" stroke-width="2" marker-end="url(#arrowhead)" stroke-dasharray="4,4"/>
+  <rect x="455" y="535" width="90" height="22" rx="11" fill="#0e1116" stroke="#30363d" stroke-width="1"/>
+  <text x="500" y="550" text-anchor="middle" font-size="12" fill="#7d8590" font-weight="500">audit</text>
+
+  <text x="600" y="695" text-anchor="middle" font-size="16" fill="#e6edf3" font-weight="500" letter-spacing="0.3">
+    <tspan fill="#e6edf3">Ears listen.</tspan>
+    <tspan dx="8" fill="#e6edf3">Brain decides.</tspan>
+    <tspan dx="8" fill="#e6edf3">Hands act.</tspan>
+    <tspan dx="8" fill="#22c55e" font-weight="600">Mirror proves.</tspan>
+  </text>
+</svg>

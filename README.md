@@ -7,7 +7,7 @@
 <p align="center">
   <a href="#run-it">Run it</a> ·
   <a href="#the-number-that-matters">The number</a> ·
-  <a href="#bugs-found-in-our-own-measurements">How I know the numbers are honest</a> ·
+  <a href="#how-i-know-the-numbers-are-honest">How I know the numbers are honest</a> ·
   <a href="WHAT_WE_CUT.md">Honest scope</a>
 </p>
 
@@ -660,7 +660,7 @@ the window forever.
 `order.created` webhook. Every unit test passed, because every unit test handed it
 a hand-built `order.created` payload — and in production the sweeper would have
 swept an empty table forever. It is the shape every entry in
-[Bugs found in our own measurements](#bugs-found-in-our-own-measurements) shares:
+[Bugs found in our own measurements](#how-i-know-the-numbers-are-honest) shares:
 a green light attached to nothing. An instrument that only ever runs on its own
 fixture is not evidence that it works. `tests/test_order_watch.py` pins the fix,
 and its load-bearing assertion
