@@ -26,16 +26,40 @@
   section{display:none;padding-top:34px} section.on{display:block}
   .hero{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:30px 32px}
   .big{font-size:40px;font-weight:600;letter-spacing:-.02em;margin:2px 0 0}
-  .ci{color:var(--muted);font-size:14px;margin-top:6px}
-  .lede{color:var(--muted);font-size:14px}
-  .chartbox{height:300px;margin-top:26px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
-    background:var(--line);border:1px solid var(--line);border-radius:10px;
-    overflow:hidden;margin-top:26px}
-  .cell{background:var(--card);padding:18px 20px}
-  .cell .k{color:var(--muted);font-size:13px}
-  .cell .v{font-size:20px;font-weight:600;margin-top:4px}
-  .cell .n{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .ci{color:var(--muted);font-size:14px;margin-top:6px;max-width:78ch}
+  .lede{color:var(--muted);font-size:14px;max-width:78ch}
+  /* The answer, at the top of the record, in the size of an answer. Smaller than
+     the scoreboard's headline number, because the chart is the loud thing on this
+     site and a second 40px figure would compete with it. */
+  .verdict{font-size:27px;font-weight:600;letter-spacing:-.015em;margin:4px 0 0}
+  .ci b{font-weight:600;color:var(--ink)}
+  .chartbox{height:340px;margin-top:30px}
+  /* The chart is the argument, so it gets the room and the only strong colour on
+     the page. Everything below it is a list of facts in one weight. */
+  .chartnote{color:var(--muted);font-size:13px;margin-top:16px;max-width:70ch}
+  /* Facts, not cards. A grid of identical boxes gives six numbers the same
+     weight and hides which one matters; a ruled list gives them an order and
+     lets the values line up in one column you can read down. */
+  .facts{display:grid;grid-template-columns:1fr auto;gap:0;margin:0}
+  .facts .f{display:contents}
+  .facts .fk{padding:13px 0;border-bottom:1px solid #f0f1f3}
+  .facts .fv{padding:13px 0;border-bottom:1px solid #f0f1f3;text-align:right;
+    font-weight:600;white-space:nowrap;padding-left:24px}
+  .facts .fn{color:var(--muted);font-size:13px;margin-top:2px}
+  .facts .f:last-child .fk,.facts .f:last-child .fv{border-bottom:0}
+  /* Figures, not cards. Four bordered boxes in a row give four numbers the same
+     weight and the same visual promise as the chart above them, and they read as
+     a dashboard template rather than as this system's readout. A single ruled
+     band with hairlines between the figures says the same thing more quietly and
+     survives a laptop width, where a 4-up card grid wraps into a 2x2 block. */
+  .strip{display:flex;flex-wrap:wrap;margin-top:22px;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .strip .s{padding:14px 28px 14px 0;margin-right:28px;
+    border-right:1px solid var(--line);flex:0 1 auto}
+  .strip .s:last-child{border-right:0;margin-right:0;padding-right:0}
+  .strip .k{color:var(--muted);font-size:13px}
+  .strip .v{font-size:21px;font-weight:600;margin-top:3px;letter-spacing:-.01em}
+  .strip .n{color:var(--muted);font-size:12.5px;margin-top:2px}
   table{width:100%;border-collapse:collapse;margin-top:20px;font-size:14px}
   th{text-align:left;color:var(--muted);font-weight:500;padding:9px 10px;
     border-bottom:1px solid var(--line)}
@@ -53,6 +77,7 @@
   .gate{display:flex;justify-content:space-between;padding:6px 0;
     border-bottom:1px solid #f0f1f3;font-size:13.5px}
   .gate .no{color:var(--warn)} .gate .yes{color:#9aa0a8}
+  .gate .gid{color:#9aa0a8;font-size:12.5px;font-variant-numeric:tabular-nums}
   button.act{font:inherit;padding:9px 15px;border:1px solid var(--line);background:#fff;
     border-radius:7px;cursor:pointer}
   button.act:hover{background:#f4f5f7}
@@ -85,9 +110,6 @@
   .opsnote{margin-top:8px;font-size:13px;color:var(--muted)}
   .opsnote.err{color:var(--stop)}
   .opsnote.ok{color:var(--engine)}
-  /* Five numbers, one row. A sixth empty slot in a bordered grid reads as a cell
-     that failed to load. */
-  #ops_today{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
 
   /* The feed. A time column of fixed width so the timestamps line up as a ruler
      down the left, and a rule between rows rather than a card around each: sixty
@@ -154,33 +176,58 @@
     <div class="big" id="incr">—</div>
     <div class="ci" id="ci"></div>
     <div class="chartbox"><canvas id="bars"></canvas></div>
+    <div class="chartnote">Control is not a competitor. It is a randomly held-out
+      slice of the same traffic that the engine is forbidden to touch, so the gap
+      between it and Engine is the only number here that nothing else explains.
+      Baseline is what a fixed retry-and-remind ladder gets. Oracle is what
+      perfect play would have got, and it is the denominator — not a target.</div>
   </div>
-  <div class="grid" id="stats"></div>
+
+  <div class="panel">
+    <h3>What it cost to get there</h3>
+    <div class="lede">The numbers a recovery engine is usually not asked for.</div>
+    <dl class="facts" id="stats"></dl>
+  </div>
+
   <div class="panel">
     <h3>Where we lost</h3>
     <div class="lede">Segments where the engine did worse than doing nothing.</div>
-    <table id="lost"><tbody></tbody></table>
+    <table id="lost"><thead><tr>
+      <th>Segment</th><th class="num">Engine</th><th class="num">Control</th>
+      <th class="num">Difference</th><th class="num">Cases</th>
+      </tr></thead><tbody></tbody></table>
   </div>
 </section>
 
 <section id="s1">
-  <div class="row">
-    <select id="arm" onchange="loadCases()">
-      <option value="">All arms</option><option>ENGINE</option>
-      <option>BASELINE</option><option>CONTROL</option><option>ORACLE</option>
-    </select>
-    <button class="act" onclick="loadHl('sleeping_dog')">Sleeping dogs</button>
-    <button class="act" onclick="loadHl('gate_stop')">Gate stops</button>
-    <button class="act" onclick="loadHl('write_off')">Write-offs</button>
-    <button class="act" onclick="loadHl('big_save')">Big saves</button>
+  <div class="panel">
+    <h3>Every case, in every arm</h3>
+    <div class="lede">One failed payment becomes four cases — the same debt is run
+      through the engine, the fixed baseline ladder, the untouched control and the
+      oracle — so the same order appears up to four times, once per arm. That
+      repetition is the measurement. Pick a row to see exactly what was known and
+      what was decided.</div>
+    <div class="row" style="margin-top:18px">
+      <select id="arm" onchange="loadCases()">
+        <option value="">All arms</option><option>ENGINE</option>
+        <option>BASELINE</option><option>CONTROL</option><option>ORACLE</option>
+      </select>
+      <button class="act" onclick="loadHl('sleeping_dog')">A sleeping dog we left alone</button>
+      <button class="act" onclick="loadHl('gate_stop')">A gate that said no</button>
+      <button class="act" onclick="loadHl('write_off')">A case we gave up on</button>
+      <button class="act" onclick="loadHl('big_save')">The biggest save</button>
+    </div>
+    <table id="cases"><thead><tr>
+      <th>Case</th><th>Failure</th><th>Method</th><th class="num">Amount</th>
+      <th class="num">Rung</th><th>Arm</th><th>Status</th></tr></thead><tbody></tbody></table>
   </div>
-  <table id="cases"><thead><tr>
-    <th>Case</th><th>Failure</th><th>Method</th><th class="num">Amount</th>
-    <th class="num">Rung</th><th>Arm</th><th>Status</th></tr></thead><tbody></tbody></table>
 </section>
 
 <section id="s2">
-  <div id="dec"><div class="empty">Pick a case, or a highlight, to see the decision record.</div></div>
+  <div id="dec"><div class="empty">Nothing selected yet. Open the Cases tab and
+    pick a row — or one of the four highlights there — and the whole decision
+    record lands here: what was known, which gates ran, what each candidate
+    action scored, and why this one won.</div></div>
 </section>
 
 <section id="s3">
@@ -190,7 +237,7 @@
       execute — on real cases in real time. <code>TIME_SCALE</code> divides the
       <i>waits</i> so a six-hour ladder is watchable; it never touches the clock, so
       every timestamp below is real.</div>
-    <div class="grid" id="livetotals"></div>
+    <div class="strip" id="livetotals"></div>
     <div class="row" style="margin-top:16px">
       <button class="act" onclick="demoFail()">Seed a failed payment</button>
       <button class="act" onclick="tickNow()">Tick once, by hand</button>
@@ -205,7 +252,7 @@
       Levels 1–2 are exact ids. Level 3 matched a phone or email and an amount.
       Level 4 matched only an amount — that is a guess, and it is labelled one.
       Level 5 is a human's word for money we never saw arrive.</div>
-    <div class="grid" id="matchtotals"></div>
+    <div class="strip" id="matchtotals"></div>
     <table id="matchdist"><thead><tr>
       <th>Level</th><th>Matched on</th><th>Confidence</th>
       <th class="num">Settlements</th><th class="num">Amount</th></tr></thead><tbody></tbody></table>
@@ -218,7 +265,7 @@
       created and the payment never arrived. Watching is not at risk yet — most of it
       gets paid within the minute. Only the sweeper, <span id="abmin">30</span> minutes
       later, turns silence into a case.</div>
-    <div class="grid" id="cototals"></div>
+    <div class="strip" id="cototals"></div>
     <div class="row" style="margin-top:16px">
       <button class="act" onclick="sweep()">Run the sweep</button>
       <button class="act" onclick="sweep(1)">Sweep with a 1-minute window</button>
@@ -272,6 +319,7 @@
   </div>
 </section>
 
+<section id="s5">
   <!-- The stop button is first, largest, and the only red thing on the page.
        Everything else on this tab is there to make an operator confident enough
        to press it: what it stops, what it keeps doing, and what it costs. -->
@@ -298,10 +346,7 @@
           <option value="action">One action type</option>
           <option value="rung">This rung and above</option>
         </select>
-        <select id="ops_action">
-          <option>RETRY</option><option>REMIND</option><option>PAY_LINK</option>
-          <option>METHOD_CHANGE</option><option>HUMAN</option><option>WRITE_OFF</option>
-        </select>
+        <select id="ops_action"><!-- filled from ACTION_PLURAL at boot --></select>
         <select id="ops_rung">
           <option value="1">1 — retry and above</option>
           <option value="2">2 — remind and above</option>
@@ -342,7 +387,7 @@
     <div class="lede">Since local midnight. Money recovered is shown next to what
       the actions cost, because a recovery number with no cost beside it is a
       number nobody can act on.</div>
-    <div class="grid" id="ops_today"></div>
+    <dl class="facts" id="ops_today"></dl>
   </div>
 
   <div class="panel">
@@ -391,6 +436,65 @@ const R = p => "₹" + Math.round((p||0)/100).toLocaleString("en-IN");
 const $ = s => document.querySelector(s);
 let BOARD = null, chart = null;
 
+// Rupees, in the unit the audience for this page actually thinks in. ₹2500k is a
+// number you have to convert; ₹25L is one you read. Zero is just zero.
+const lakh = v => v ? "₹" + (v/100000).toFixed(v >= 100000 ? 0 : 1) + "L" : "₹0";
+const FONT = getComputedStyle(document.body).fontFamily;
+
+// Two small Chart.js plugins rather than the annotation package: this page has
+// one chart, and a second CDN script to draw two lines and four labels is a
+// dependency to keep working forever.
+
+// The value on top of the bar. Reading a bar chart off its axis is a task; these
+// are the four numbers the whole page is about, so they are written down.
+const valueLabels = {
+  id: "valueLabels",
+  afterDatasetsDraw(c){
+    const {ctx} = c, meta = c.getDatasetMeta(0);
+    ctx.save();
+    ctx.font = "600 13px " + FONT;
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    meta.data.forEach((bar, i) => {
+      ctx.fillStyle = i === 2 ? "#1a6b4f" : "#6b7079";
+      ctx.fillText("₹" + Math.round(c.data.datasets[0].data[i]).toLocaleString("en-IN"),
+                   bar.x, bar.y - 8);
+    });
+    ctx.restore();
+  }
+};
+
+// The gap between Control and Engine, drawn and named. It is the one quantity on
+// this page that nothing except the engine explains, and leaving the reader to
+// subtract two bars by eye is leaving the argument unmade.
+const gapBracket = {
+  id: "gapBracket",
+  afterDatasetsDraw(c){
+    const bars = c.getDatasetMeta(0).data;
+    if(bars.length < 3 || !BOARD) return;
+    const {ctx} = c, ctrl = bars[0], eng = bars[2];
+    const x = c.chartArea.right + 26;
+    const yTop = eng.y, yBot = ctrl.y;
+    ctx.save();
+    // The control level, carried across to where the gap is measured.
+    ctx.strokeStyle = "#c6cad1"; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(ctrl.x, yBot); ctx.lineTo(x + 5, yBot); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(eng.x, yTop); ctx.lineTo(x + 5, yTop); ctx.stroke();
+    // The bracket itself, in the engine's colour: this is what the engine added.
+    ctx.setLineDash([]); ctx.strokeStyle = "#1a6b4f"; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, yTop); ctx.lineTo(x, yBot);
+    ctx.moveTo(x - 4, yTop); ctx.lineTo(x + 4, yTop);
+    ctx.moveTo(x - 4, yBot); ctx.lineTo(x + 4, yBot);
+    ctx.stroke();
+    ctx.fillStyle = "#1a6b4f"; ctx.textAlign = "left";
+    ctx.font = "600 13px " + FONT;
+    ctx.fillText(R(BOARD.headline.incremental), x + 10, (yTop + yBot)/2 - 3);
+    ctx.fillStyle = "#6b7079"; ctx.font = "400 12px " + FONT;
+    ctx.fillText("incremental", x + 10, (yTop + yBot)/2 + 13);
+    ctx.restore();
+  }
+};
+
 // Tabs are addressable: /#ops opens the Ops tab directly. A filmed demo needs to
 // land on a tab, not click its way to one, and a screenshot needs a URL.
 const TABS = {scoreboard:"s0", cases:"s1", decision:"s2", live:"s3", demo:"s4", ops:"s5"};
@@ -406,15 +510,25 @@ function tab(id, el){
 }
 
 function openHash(){
-  const id = TABS[(location.hash || "").replace("#","")];
+  // `#cases` opens a tab; `#decision=<id>` opens one record. A decision record is
+  // the thing somebody wants to send somebody else -- "look at what it knew here"
+  // -- and a tab with no address for it makes that a screenshot instead of a link.
+  const [name, arg] = (location.hash || "").replace("#", "").split("=");
+  const id = TABS[name];
   if(!id) return;
   const btn = [...document.querySelectorAll("nav button")]
     .find(b => (b.getAttribute("onclick")||"").includes("'" + id + "'"));
   if(btn) btn.click();
+  if(name === "decision" && arg) showDecision(decodeURIComponent(arg));
 }
 const runId = () => $("#run").value || "default";
 
 async function boot(){
+  // The scoped-pause menu is generated, not written out, so its wording cannot
+  // drift from the wording the Ops figures use. The value is the enum the API
+  // expects; only the label is prose.
+  $("#ops_action").innerHTML = Object.keys(ACTION_PLURAL).map(k =>
+    `<option value="${k}">${cap(plural(k))}</option>`).join("");
   const r = await (await fetch("/api/runs")).json();
   $("#run").innerHTML = (r.runs||[]).map(x=>`<option>${x.run_id}</option>`).join("")
     || "<option>default</option>";
@@ -437,28 +551,27 @@ async function loadLive(){
   const acting = d.actions.filter(a=>a.status==="PENDING"||a.status==="IN_FLIGHT").length;
   const unknown = d.actions.filter(a=>a.status==="UNKNOWN").length;
 
-  $("#livetotals").innerHTML = [
+  $("#livetotals").innerHTML = strip([
     ["Time scale", d.time_scale===1 ? "real time" : d.time_scale+"×",
      d.time_scale===1 ? "waits are real hours" : "a scheduled hour takes "+
        (3600/d.time_scale).toFixed(1)+"s"],
     ["Live cases", d.cases.length.toLocaleString(),
      d.cases.filter(c=>c.status==="OPEN").length+" still open"],
     ["Scheduled, not yet due", acting.toLocaleString(),
-     unknown ? unknown+" left UNKNOWN by a timeout" : "nothing stuck"],
+     unknown ? unknown+" left unknown by a timeout" : "nothing stuck"],
     ["Contacts sent", d.contacts.filter(c=>c.ok).length.toLocaleString(),
      "recorded against the 7-day cap"],
-  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
-      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+  ]);
 
   $("#livetable tbody").innerHTML = d.cases.length
     ? d.cases.map(c=>{
         const l = last[c.case_id];
         return `<tr onclick="openCase('${c.case_id}')">
-          <td>${c.case_id.replace(/^live_/,"")}</td><td>${c.failure_class}</td>
+          <td>${c.case_id.replace(/^live_/,"")}</td><td>${say(c.failure_class)}</td>
           <td class="num">${R(c.amount)}</td><td class="num">${c.rung}</td>
           <td class="num">${c.contacts_sent}</td>
-          <td><span class="pill ${LIVEST[c.status]||""}">${c.status.toLowerCase()}</span></td>
-          <td>${l ? l.action + (l.stop_reason?" · "+l.stop_reason:"") : "—"}</td></tr>`;
+          <td><span class="pill ${LIVEST[c.status]||""}">${say(c.status)}</span></td>
+          <td>${l ? say(l.action) + (l.stop_reason?" · "+say(l.stop_reason):"") : "—"}</td></tr>`;
       }).join("")
     : `<tr><td colspan="7" class="empty">No live cases. Press <b>Seed a failed
        payment</b> — it pushes a saved webhook through the same ingest path Razorpay
@@ -487,7 +600,7 @@ async function loadCheckouts(){
   const n = k => (c[k]||{}).n || 0, amt = k => (c[k]||{}).amount || 0;
   $("#abmin").textContent = d.abandon_minutes;
 
-  $("#cototals").innerHTML = [
+  $("#cototals").innerHTML = strip([
     ["Watching", n("WATCHING").toLocaleString(),
      R(amt("WATCHING"))+" in flight, not at risk yet"],
     ["Window closed on them", n("ABANDONED").toLocaleString(),
@@ -496,14 +609,13 @@ async function loadCheckouts(){
      R(amt("PAID"))+" we never contacted"],
     ["Due for the next sweep", (d.due_now||[]).length.toLocaleString(),
      "silent longer than "+d.abandon_minutes+" minutes"],
-  ].map(([k,v,note])=>`<div class="cell"><div class="k">${k}</div>
-      <div class="v">${v}</div><div class="n">${note}</div></div>`).join("");
+  ]);
 
   const rows = [...(d.abandoned||[]), ...(d.watching||[])];
   $("#cotable tbody").innerHTML = rows.length
     ? rows.map(o=>`<tr><td>${o.order_id}</td><td class="num">${R(o.amount)}</td>
         <td>${CLOCK(o.created_at)}</td>
-        <td><span class="pill ${CO[o.status]||""}">${o.status.toLowerCase()}</span></td>
+        <td><span class="pill ${CO[o.status]||""}">${say(o.status)}</span></td>
         <td>${o.detail || "waiting to see if they come back"}</td></tr>`).join("")
     : `<tr><td colspan="5" class="empty">Nothing on the watch list. Replay
        <code>08_order_created_then_abandoned.json</code> and an order appears here
@@ -535,18 +647,17 @@ async function loadMatches(){
     return;
   }
 
-  $("#matchtotals").innerHTML = [
+  $("#matchtotals").innerHTML = strip([
     ["Settled", R(d.amount), d.settlements+" settlement"+(d.settlements===1?"":"s")],
     ["Matched on an exact id", R(d.amount_certain), d.pct_certain+"% of the total"],
     ["Matched some other way", R(d.amount_not_certain),
      "contact, amount, or somebody's word"],
-  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
-      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+  ]);
 
   $("#matchdist tbody").innerHTML = d.levels.map(l=>{
     const rung = r.ladder[String(l.level)] || {means:"could not be matched to any debt"};
     return `<tr><td>${l.level ?? "—"}</td><td>${rung.means}</td>
-      <td><span class="pill ${CONF[l.confidence]||""}">${l.confidence}</span></td>
+      <td><span class="pill ${CONF[l.confidence]||""}">${say(l.confidence)}</span></td>
       <td class="num">${l.n}</td><td class="num">${R(l.amount)}</td></tr>`;
   }).join("");
 
@@ -574,68 +685,155 @@ async function loadBoard(){
 
   const names=["CONTROL","BASELINE","ENGINE","ORACLE"];
   const vals=names.map(n=>(a[n]?.gross_recovered||0)/100);
-  const cols=["#8a8f98","#b8bcc4","#1a6b4f","#cfd3d9"];
   if(chart) chart.destroy();
   chart = new Chart($("#bars"), {
     type:"bar",
     data:{labels:names.map(n=>n[0]+n.slice(1).toLowerCase()),
-          datasets:[{data:vals,backgroundColor:cols,borderRadius:4,barPercentage:.62}]},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false},
-      tooltip:{callbacks:{label:c=>"₹"+Math.round(c.raw).toLocaleString("en-IN")}},
-      title:{display:true,align:"start",color:"#6b7079",font:{weight:"400",size:13},
-        text:"Control is not a competitor — it is the measuring stick. "+
-             "The gap between it and Engine is the product."}},
-      scales:{y:{ticks:{callback:v=>"₹"+(v/1000).toFixed(0)+"k"},
-        grid:{color:"#eceef1"}},x:{grid:{display:false}}}}
+          datasets:[{data:vals,
+            // Control is drawn as an outline, not a filled bar. It is the thing
+            // the others are measured against, and a solid bar in the same
+            // family reads as a fourth contestant.
+            backgroundColor:["#fff","#c6cad1","#1a6b4f","#e7e9ec"],
+            borderColor:["#8a8f98","#c6cad1","#1a6b4f","#e7e9ec"],
+            borderWidth:[1.5,0,0,0],
+            borderRadius:3,barPercentage:.6}]},
+    options:{maintainAspectRatio:false,
+      // Room above the tallest bar for its value label and for the gap bracket.
+      layout:{padding:{top:26,right:126}},
+      plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{y:{beginAtZero:true,border:{display:false},
+        ticks:{color:"#9aa0a8",font:{size:12},padding:8,callback:lakh},
+        grid:{color:"#eff0f2",drawTicks:false}},
+        x:{grid:{display:false},border:{color:"#e3e5e9"},
+           ticks:{color:"#454a52",font:{size:13}}}}},
+    plugins:[valueLabels, gapBracket]
   });
 
-  $("#stats").innerHTML = [
-    ["Recovered anyway (control)", R(h.control_organic),
-     "money that arrived with no help from us"],
-    ["Engine gross", R(h.engine_gross), `vs baseline ${R(h.baseline_gross)}`],
+  $("#stats").innerHTML = facts([
+    ["Recovered anyway, with no help from us", R(h.control_organic),
+     "the control arm's own recoveries — the floor everything is measured from"],
+    ["Engine gross", R(h.engine_gross),
+     `a fixed retry-and-remind ladder got ${R(h.baseline_gross)} on the same traffic`],
     ["False chase rate", o.false_chase_per_10k_engine+" / 10k",
-     `baseline ${o.false_chase_per_10k_baseline} / 10k`],
+     `customers contacted about money they had already paid · baseline ${o.false_chase_per_10k_baseline} / 10k`],
     ["Left alone on purpose", o.left_alone_count.toLocaleString(),
-     R(o.left_alone_value)+" deliberately not chased"],
-    ["Written off", o.written_off_count.toLocaleString(), R(o.written_off_value)],
+     R(o.left_alone_value)+" the engine judged it would do better not to touch"],
+    ["Written off", o.written_off_count.toLocaleString(),
+     R(o.written_off_value)+" — the ladder ran out and nobody was contacted again"],
     ["Customer contacts", o.contacts_engine.toLocaleString(),
-     `baseline ${o.contacts_baseline?.toLocaleString()}`],
-  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
-      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+     `baseline ${o.contacts_baseline?.toLocaleString()} for ${R(h.baseline_gross)}`],
+  ]);
 
   $("#lost tbody").innerHTML = (o.where_we_lost||[]).length
     ? o.where_we_lost.map(r=>`<tr class="lost"><td>${r.segment}</td>
         <td class="num">${(r.engine_rate*100).toFixed(1)}%</td>
         <td class="num">${(r.control_rate*100).toFixed(1)}%</td>
         <td class="num">${(r.delta*100).toFixed(1)} pp</td><td class="num">${r.n}</td></tr>`).join("")
-    : `<tr><td class="empty">No segment where the engine underperformed doing nothing.</td></tr>`;
+    : `<tr><td colspan="5" class="empty">No segment where the engine did worse
+        than leaving the case alone. This table is here because the honest answer
+        is sometimes not that, and a scoreboard that can only report wins is not
+        a scoreboard.</td></tr>`;
 }
+
+// Enum values are how the engine talks. A screen full of SCREAMING_SNAKE_CASE is
+// how a debug dump talks, and the difference is whether anyone reads it.
+//
+// This is done here and not in `app/services/feed.py` on purpose: the service's job
+// is to say what happened, and this end's job is to decide how it reads -- the same
+// split that already puts the "14 cases" count in the UI rather than in the title.
+// A few tokens really are identifiers and are left alone.
+const KEEP = /^(G\d+|LLM|SMTP|UPI|NEFT|IMPS|UTR|API|EMI|OTP|ID)$/;
+const deshout = s => String(s === null || s === undefined ? "" : s)
+  .replace(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)*\b/g,
+           m => KEEP.test(m) ? m : m.replace(/_/g, " ").toLowerCase());
+const cap = s => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+const say = s => cap(deshout(s));
+
+// Payment methods are written the way the payments industry writes them. "Upi" is
+// nobody's word for it.
+const METHOD = {upi:"UPI", card:"Card", netbanking:"Netbanking", wallet:"Wallet",
+                emi:"EMI", nach:"NACH", unknown:"Not recorded"};
+const method = m => METHOD[String(m||"").toLowerCase()] || say(m);
+
+// Two ways to show a set of figures, and the choice between them is the length of
+// the note under each one.
+//
+// `strip` is a ruled band read left to right: three or four figures whose notes are
+// a few words. `facts` is a ruled list read top to bottom, values right-aligned in
+// one column: for figures whose note is a sentence, which a band cannot hold
+// without collapsing into five columns of wrapped small print.
+const strip = items => items.map(([k, v, n]) =>
+  `<div class="s"><div class="k">${k}</div><div class="v">${v}</div>
+   <div class="n">${n}</div></div>`).join("");
+
+const facts = items => items.map(([k, v, n]) =>
+  `<div class="f"><div class="fk">${k}<div class="fn">${n}</div></div>
+   <div class="fv">${v}</div></div>`).join("");
 
 async function loadCases(){
   const arm = $("#arm").value;
   const r = await (await fetch(`/api/cases?run_id=${runId()}&limit=60`+(arm?`&arm=${arm}`:""))).json();
   $("#cases tbody").innerHTML = (r.cases||[]).map(c=>`
     <tr onclick="openCase('${c.case_id}')">
-      <td>${c.case_id.slice(0,26)}</td><td>${c.failure_class}</td><td>${c.method}</td>
-      <td class="num">${R(c.amount)}</td><td class="num">${c.rung}</td><td>${c.arm}</td>
+      <td>${c.case_id.slice(0,26)}</td><td>${say(c.failure_class)}</td><td>${method(c.method)}</td>
+      <td class="num">${R(c.amount)}</td><td class="num">${c.rung}</td><td>${say(c.arm)}</td>
       <td><span class="pill ${/RECOVERED/.test(c.status)?'good':(c.status==='WRITTEN_OFF'?'warn':'')}">
-        ${c.status}</span></td></tr>`).join("")
-    || `<tr><td class="empty">No cases stored for this run.</td></tr>`;
+        ${say(c.status)}</span></td></tr>`).join("")
+    || `<tr><td colspan="7" class="empty">No cases stored for this run yet. Run
+        <code>python run_benchmark.py</code> to fill it, or open the Live ops tab
+        and fail a payment to watch one arrive.</td></tr>`;
 }
+
+const HL_WORDS = {
+  sleeping_dog: "a case the engine deliberately left alone",
+  gate_stop:    "a case a gate refused to act on",
+  write_off:    "a case the ladder gave up on",
+  big_save:     "a large recovery",
+};
 
 async function loadHl(kind){
   const r = await (await fetch(`/api/highlights?run_id=${runId()}&kind=${kind}&limit=20`)).json();
   const d = r.decisions||[];
-  if(!d.length){ alert("none recorded for "+kind); return; }
+  if(!d.length){
+    alert(`This run recorded no example of ${HL_WORDS[kind] || kind}.`
+      + `\n\nPick another run above, or run python run_benchmark.py --n 2000`
+      + ` to generate a run large enough to contain one.`);
+    return;
+  }
   showDecision(d[0].decision_id);
 }
 
 async function openCase(id){
   const c = await (await fetch("/api/case/"+id)).json();
   const last = (c.decisions||[]).slice(-1)[0];
-  if(!last){ alert("no decision recorded for this case"); return; }
+  if(!last){
+    alert("This case has no decision recorded yet — it was opened but the worker"
+      + " has not reached it. Watch it arrive on the Demo tab.");
+    return;
+  }
   showDecision(last.decision_id);
 }
+
+// The engine's own vocabulary, said out loud once. Everywhere else an action is
+// rendered with `say()`; this is for the sentence at the top of the record, which
+// has to read as a sentence.
+const ACTION_WORDS = {
+  WAIT: "wait", NONE: "do nothing", RETRY: "retry the charge",
+  REMIND: "send a reminder", PAY_LINK: "send a payment link",
+  METHOD_CHANGE: "ask for a different method", HUMAN: "hand this to a human",
+  WRITE_OFF: "stop and write it off",
+};
+
+// The same actions counted rather than described: "29 retries", not "29 retry".
+// One map, two readers -- the Today breakdown and the scoped-pause menu -- because
+// an operator who pauses "Reminders" and then reads "3 remind" has been shown two
+// different names for one thing and has to work out that they match.
+const ACTION_PLURAL = {
+  RETRY: "retries", REMIND: "reminders", PAY_LINK: "payment links",
+  METHOD_CHANGE: "method-change requests", HUMAN: "handoffs to a human",
+  WRITE_OFF: "write-offs",
+};
+const plural = k => ACTION_PLURAL[k] || say(k).toLowerCase();
 
 async function showDecision(id){
   const r = await (await fetch("/api/replay/"+id)).json();
@@ -643,45 +841,65 @@ async function showDecision(id){
   // By id, not by position: the nav grew a tab and an index would have moved.
   [...document.querySelectorAll("nav button")]
     .find(b => (b.getAttribute("onclick")||"").includes("'s2'")).click();
+  // `tab()` has just written `#decision`; make it the address of this record.
+  history.replaceState(null, "", "#decision=" + encodeURIComponent(id));
+  const act = r.then.action;
   $("#dec").innerHTML = `
-  <div class="panel"><h3>What we knew</h3><div class="kv">
-    <div>Obligation</div><div>${s.obligation_id} · ${s.kind}</div>
+  <div class="hero">
+    <div class="lede">Decision ${id}</div>
+    <div class="verdict">${cap(ACTION_WORDS[act] || say(act))}</div>
+    <div class="ci">${r.then.stop_reason
+        ? "The reason on the record is <b>" + deshout(r.then.stop_reason) + "</b>."
+        : "Chosen on expected value over doing nothing."}
+      Replayed from the stored snapshot just now, it
+      ${r.match ? "returns the same action — the decision function never touched a"
+                + " database, so it reproduces"
+                : "returns <b>" + say(r.now.action) + "</b> instead, so something the"
+                + " engine reads has changed since"}.</div>
+  </div>
+
+  <div class="panel"><h3>What the engine could see</h3>
+  <div class="lede">These fields and nothing else. Simulator ground truth is not in
+    this list, which is what makes the benchmark worth reading.</div>
+  <div class="kv" style="margin-top:14px">
+    <div>Obligation</div><div>${s.obligation_id} · ${say(s.kind)}</div>
     <div>Amount outstanding</div><div>${R(s.amount_due - s.amount_settled)}</div>
-    <div>Failure</div><div>${s.failure_class} on ${s.method}${s.is_mandate?" (mandate)":""}</div>
+    <div>Failure</div><div>${say(s.failure_class)} on ${method(s.method).toLowerCase()}${s.is_mandate?" · mandate on file":""}</div>
     <div>Attempts / rung</div><div>${s.attempts} / ${s.rung}</div>
     <div>Contacts last 7 days</div><div>${s.contacts_last_7d}</div>
-    <div>Arm</div><div>${s.arm}</div>
+    <div>Arm</div><div>${say(s.arm)}</div>
     <div>Decided at</div><div>${s.now}</div>
   </div></div>
 
-  <div class="panel"><h3>Gates</h3>
-    ${r.gate_trace.map(g=>`<div class="gate"><span>${g.gate}</span>
-      <span class="${g.passed?'yes':'no'}">${g.passed?'pass':g.detail}</span></div>`).join("")}
+  <div class="panel"><h3>Gates, in order</h3>
+    <div class="lede">Every one runs before anything is scored. The first that
+      refuses ends the decision, and its reason is the reason.</div>
+    ${r.gate_trace.map(g=>`<div class="gate">
+      <span><span class="gid">${esc(g.gate.split("_")[0])}</span>
+        ${deshout(esc(g.gate.replace(/^G\d+_?/, "")))}</span>
+      <span class="${g.passed?'yes':'no'}">${g.passed?'pass':say(g.detail)}</span></div>`).join("")}
   </div>
 
-  <div class="panel"><h3>Candidates</h3>
-    ${r.candidates.length ? `<table><thead><tr><th>Action</th>
+  <div class="panel"><h3>What each action was worth</h3>
+    ${r.candidates.length ? `<div class="lede">Uplift is the only column that
+      decides anything: how much more likely payment becomes <i>because</i> of the
+      action. P(pay | nothing) comes from the control arm, which is the whole
+      reason there is one.</div>
+      <table><thead><tr><th>Action</th>
       <th class="num">P(pay | act)</th><th class="num">P(pay | nothing)</th>
-      <th class="num">Uplift</th><th class="num">EV</th></tr></thead><tbody>
-      ${r.candidates.map(c=>`<tr><td>${c.action}</td>
+      <th class="num">Uplift</th><th class="num">Expected value</th></tr></thead><tbody>
+      ${r.candidates.map(c=>`<tr><td>${say(c.action)}</td>
         <td class="num">${c.p_act.toFixed(3)}</td><td class="num">${c.p_none.toFixed(3)}</td>
         <td class="num" style="color:${c.uplift<0?'var(--warn)':'inherit'}">
           ${c.uplift>=0?'+':''}${c.uplift.toFixed(3)}</td>
         <td class="num">${R(c.ev*100)}</td></tr>`).join("")}
       </tbody></table>`
-      : `<div class="lede">Blocked by a gate before scoring — no candidates were considered.</div>`}
+      : `<div class="lede">Nothing was scored. A gate refused before the engine got
+         as far as comparing actions — see the gate above with a reason next to it.</div>`}
   </div>
 
-  <div class="panel"><h3>Decision</h3><div class="kv">
-    <div>Then</div><div><b>${r.then.action}</b>${r.then.stop_reason?` · ${r.then.stop_reason}`:""}</div>
-    <div>Replayed now</div><div><b>${r.now.action}</b>${r.now.stop_reason?` · ${r.now.stop_reason}`:""}</div>
-    <div>Match</div><div><span class="pill ${r.match?'good':'warn'}">${r.match}</span></div>
-    <div>Reasoning</div><div>${r.notes||"—"}</div>
-  </div>
-  <div class="lede" style="margin-top:14px">
-    Replayed from the stored snapshot. It reproduces because the decision function
-    never touched a database.</div>
-  </div>`;
+  ${r.notes ? `<div class="panel"><h3>The note it wrote down</h3>
+    <div class="lede">${say(esc(r.notes))}</div></div>` : ""}`;
 }
 
 async function chaos(kind){
@@ -704,7 +922,7 @@ const Q = o => new URLSearchParams(
 
 const SCOPE_LABEL = p => p.scope === "global" ? "Everything"
   : p.scope === "merchant" ? "Merchant " + p.value
-  : p.scope === "action" ? "Action " + p.value
+  : p.scope === "action" ? cap(plural(p.value))
   : "Rung " + p.value + " and above";
 
 async function opsPoll(){
@@ -769,23 +987,23 @@ function renderOps(){
 
   // Today.
   const t = OPS.today;
-  $("#ops_today").innerHTML = [
+  $("#ops_today").innerHTML = facts([
     ["Decisions made", t.decisions.toLocaleString(),
      `on ${t.cases_decided} case${t.cases_decided===1?"":"s"} — a waiting case is
       re-asked every tick` + (t.actions_cancelled
-        ? `, and ${t.actions_cancelled} action(s) were cancelled by a pause` : "")],
+        ? `, and ${t.actions_cancelled} queued action${t.actions_cancelled===1?"":"s"}
+           ${t.actions_cancelled===1?"was":"were"} cancelled by a pause` : "")],
     ["Actions executed", t.actions_executed.toLocaleString(),
-     Object.entries(t.actions_by_type).map(([k,v])=>`${v} ${k.toLowerCase()}`).join(", ")
+     Object.entries(t.actions_by_type).map(([k,v])=>`${v} ${plural(k)}`).join(", ")
        || "nothing has come due yet"],
     ["Customers contacted", t.contacts.toLocaleString(),
-     t.contacts_failed ? t.contacts_failed + " send(s) failed — no cap was burnt"
+     t.contacts_failed ? `${t.contacts_failed} send${t.contacts_failed===1?"":"s"} failed — no cap was burnt`
                        : "counted against the 7-day cap"],
     ["Recovered", R(t.recovered),
      R(t.recovered_attributed) + " followed a contact of ours"],
     ["Spent on actions", R(t.budget_used),
      "from config action_cost, at " + t.contact_budget_per_tick + " contacts/tick"],
-  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
-      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+  ]);
 
   // Quiet hours. Only written while the operator is not mid-edit.
   if(!$("#q_start").options.length){
@@ -847,17 +1065,17 @@ async function loadAttention(){
        <tbody>${rows.map(cells).join("")}</tbody></table></div>`
     : "";
   const html = [
-    block("Stuck on UNKNOWN", "an executor call timed out, so we do not know whether "
+    block("Stuck on unknown", "an executor call timed out, so we do not know whether "
       + "money moved. Reconcile asks the source of truth.",
       a.unknown_actions, ["Action", "Case", "Type", "Attempts", "Detail"],
       r=>`<tr><td>${r.action_id.slice(0,14)}</td><td>${r.case_id.replace(/^live_/,"")}</td>
-          <td>${r.type}</td><td class="num">${r.attempts}</td>
+          <td>${say(r.type)}</td><td class="num">${r.attempts}</td>
           <td>${r.detail || "—"}</td></tr>`),
     block("Failed, and nobody was told", "the action ran and did not work. The rung "
       + "was spent either way, so these are cases the ladder has moved past silently.",
       a.failed_actions, ["Action", "Case", "Type", "Detail"],
       r=>`<tr class="lost"><td>${r.action_id.slice(0,14)}</td>
-          <td>${r.case_id.replace(/^live_/,"")}</td><td>${r.type}</td>
+          <td>${r.case_id.replace(/^live_/,"")}</td><td>${say(r.type)}</td>
           <td>${r.detail || "—"}</td></tr>`),
     block("At the contact cap", `${a.max_contacts_7d} contacts in 7 days. The engine `
       + "will not write to them again; a human can still call.",
@@ -868,12 +1086,12 @@ async function loadAttention(){
       + "a write-off or a human, and neither should happen without one.",
       a.ladder_top, ["Case", "Failure", "Amount", "Rung", "Opened"],
       r=>`<tr onclick="openCase('${r.case_id}')"><td>${r.case_id.replace(/^live_/,"")}</td>
-          <td>${r.failure_class}</td><td class="num">${R(r.amount)}</td>
+          <td>${say(r.failure_class)}</td><td class="num">${R(r.amount)}</td>
           <td class="num">${r.rung}</td><td>${WHEN(r.opened_at)}</td></tr>`),
   ].join("");
   $("#ops_attention").innerHTML = html ||
     `<div class="empty">Nothing needs a human. Actions that time out land here as
-     UNKNOWN, and customers who have had ${a.max_contacts_7d} contacts in a week
+     unknown, and customers who have had ${a.max_contacts_7d} contacts in a week
      land here before the engine goes quiet on them.</div>`;
 }
 
@@ -1030,7 +1248,7 @@ function renderFeed(){
         <div class="h">${feedTitle(e)}</div>
         <div class="d">${feedDetail(e)}</div>
         ${(e.gates_failed||[]).length
-          ? `<div class="gates">${e.gates_failed.map(esc).join(" · ")}</div>` : ""}
+          ? `<div class="gates">${e.gates_failed.map(g=>deshout(esc(g))).join(" · ")}</div>` : ""}
       </div></div>`;
   }).join("");
   FSEEN = seen;
@@ -1043,7 +1261,9 @@ function renderFeed(){
 }
 
 function feedTitle(e){
-  let t = esc(e.title);
+  // A webhook's title is Razorpay's event name. That is an identifier an ops
+  // engineer greps for, so it is reproduced exactly; everything else is prose.
+  let t = e.kind === "webhook" ? esc(e.title) : say(esc(e.title));
   // One place decides how a count is written, for every kind of row that can
   // stand for more than one thing.
   if(e.cases > 1) t += ` <span class="cnt">${e.cases} cases</span>`;
@@ -1059,7 +1279,7 @@ function feedTitle(e){
 
 function feedDetail(e){
   const bits = [];
-  if(e.detail) bits.push(esc(e.detail));
+  if(e.detail) bits.push(deshout(esc(e.detail)));
   // How long a collapsed wait has held. The engine asked the same question 993
   // times and got the same answer; that is one line and a number, not 993 lines.
   if(e.repeats > 1)

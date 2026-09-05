@@ -71,10 +71,13 @@ def live_readiness() -> dict:
         os.getenv("SMTP_FROM") or os.getenv("SMTP_USER"))
     rzp = bool(os.getenv("RAZORPAY_KEY_ID")) and bool(os.getenv("RAZORPAY_KEY_SECRET"))
     gaps = []
+    # An em dash, not the `--` this codebase writes in comments: these two strings
+    # are the only ones in this module that a person reads on screen rather than in
+    # a source file, and `--` mid-sentence in a UI looks like a typo.
     if not rzp:
-        gaps.append("no RAZORPAY_KEY_ID/SECRET -- payment links stay stubs")
+        gaps.append("no RAZORPAY_KEY_ID/SECRET — payment links stay stubs")
     if not smtp:
-        gaps.append("no SMTP_HOST/SMTP_FROM -- emails are counted, not sent")
+        gaps.append("no SMTP_HOST/SMTP_FROM — emails are counted, not sent")
     return {"razorpay_credentials": rzp, "smtp_configured": smtp,
             "will_actually_send": smtp, "gaps": gaps,
             "summary": ("real messages will leave this process" if smtp
