@@ -1,32 +1,25 @@
-![Scoreboard: four-bar comparison showing control Rs 8.9L, engine Rs 18.4L, with the Rs 9.5L incremental gap](docs/images/stats.png)# RazorRecovery
+<h1 align="center">RazorRecovery</h1>
 
-**An AI recovery engine that only counts money it can prove it caused.**
+<p align="center">
+  <b>The only payment recovery engine that can prove what it caused.</b>
+</p>
 
-> **The problem.** Every payment recovery tool tells you how much it recovered. None can tell you how much it *caused*. A lot of "recovery" is money that was arriving on its own — merchants pay vendors for a number that's inflated by organic recovery they can't measure.
->
-> **What this does.** Runs failed payments through four parallel arms — including a permanent control group it's forbidden to touch. The gap between what control recovers on its own (₹8.9L) and what the engine recovers (₹18.4L) is the only rupee figure that isn't inflated. It scores actions on *uplift* — the chance a customer pays *because of us* minus the chance they'd have paid anyway — so it deliberately leaves alone customers a reminder would push toward cancelling. Every decision replays exactly, and every metric that could flatter us reports honestly (false chases: 0/10k vs baseline 145/10k; 1,021 cases deliberately not chased; 923 written off).
->
-> **How to read this repo.** The number is `₹9,54,052 incremental — 75% of the perfect-play ceiling`. Everything below explains why that number is trustworthy. The bugs section is the most useful thing here — three measurement bugs that produced numbers looking fine while being wrong.
+<p align="center">
+  <a href="#run-it">Run it</a> ·
+  <a href="#the-number-that-matters">The number</a> ·
+  <a href="#bugs-found-in-our-own-measurements">What broke</a> ·
+  <a href="WHAT_WE_CUT.md">Honest scope</a>
+</p>
 
+---
 
+Most recovery tools bill merchants for money that was arriving anyway. This one holds out a control group it is forbidden to touch — and only counts the gap.
 
-```
-        Recovered from Rs 3,314,887 at risk  ·  2,000 failed payments  ·  seed 42
+**₹9,54,052 incremental. 75% of the perfect-play ceiling. Zero false chases against a baseline's 145 per 10k.**
 
- CONTROL    ████████▌                                    Rs   892,622   26.9%
- BASELINE   ████████████▍                                Rs 1,308,719   39.5%
- ENGINE     █████████████████▍                           Rs 1,846,673   55.7%
- ORACLE     ████████████████████▌                        Rs 2,164,541   65.3%
-            └────────────────────┘
-             CONTROL → ENGINE gap = what we actually caused
-             Rs 897,958   (mean of 5 seeds, range Rs 778,815 – Rs 1,028,039)
-             75.0% of the oracle ceiling on this seed, 73.6% on the mean
-```
+The story is not the number. The story is that the number is honest — and this README tells you exactly why.
 
-`CONTROL` is a real holdout: 2,000 identical failed payments the engine is
-forbidden to touch. It still recovers 26.9%, because that money was arriving
-anyway. **Every recovery tool that bills on gross would have invoiced for all of
-it.** We subtract it and report the remainder.
+![Scoreboard: four-bar comparison showing control Rs 8.9L, engine Rs 18.4L, with the Rs 9.5L incremental gap](docs/images/stats.png)
 
 ## Run it
 
