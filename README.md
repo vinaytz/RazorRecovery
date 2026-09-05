@@ -2,6 +2,14 @@
 
 **An AI recovery engine that only counts money it can prove it caused.**
 
+> **The problem.** Every payment recovery tool tells you how much it recovered. None can tell you how much it *caused*. A lot of "recovery" is money that was arriving on its own — merchants pay vendors for a number that's inflated by organic recovery they can't measure.
+>
+> **What this does.** Runs failed payments through four parallel arms — including a permanent control group it's forbidden to touch. The gap between what control recovers on its own (₹8.9L) and what the engine recovers (₹18.4L) is the only rupee figure that isn't inflated. It scores actions on *uplift* — the chance a customer pays *because of us* minus the chance they'd have paid anyway — so it deliberately leaves alone customers a reminder would push toward cancelling. Every decision replays exactly, and every metric that could flatter us reports honestly (false chases: 0/10k vs baseline 145/10k; 1,021 cases deliberately not chased; 923 written off).
+>
+> **How to read this repo.** The number is `₹9,54,052 incremental — 75% of the perfect-play ceiling`. Everything below explains why that number is trustworthy. The bugs section is the most useful thing here — three measurement bugs that produced numbers looking fine while being wrong.
+
+
+
 ```
         Recovered from Rs 3,314,887 at risk  ·  2,000 failed payments  ·  seed 42
 
