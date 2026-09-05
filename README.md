@@ -1,4 +1,4 @@
-# RazorRecovery
+![Scoreboard: four-bar comparison showing control Rs 8.9L, engine Rs 18.4L, with the Rs 9.5L incremental gap](docs/images/stats.png)# RazorRecovery
 
 **An AI recovery engine that only counts money it can prove it caused.**
 
@@ -540,6 +540,8 @@ actually sends it.
 
 ## Failure handling — four buttons, live on the dashboard
 
+![Four chaos buttons on the Live ops tab, each returning a plain-English verdict](docs/images/live-ops.png)
+
 | Button | What happens |
 |---|---|
 | **Duplicate webhook** | same event twice → one event row, one action. `UNIQUE(dedupe_key)` + `UNIQUE(idem_key)`. |
@@ -641,6 +643,8 @@ button works — but it replays an event Razorpay never sends, and
 feeds cannot drift.
 
 ## Demo checkout
+
+![The /checkout page — real Razorpay test-mode integration](docs/images/checkout.png)
 
 `http://localhost:8000/checkout` — a real merchant-style page, the one
 surface in this repo that a *customer* would ever see. Enter an email and an
