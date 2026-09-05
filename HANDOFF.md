@@ -70,7 +70,7 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
   false chase /10k   engine 0.0   baseline 145.0
   left alone         1,021 cases  (Rs 1,178,987 deliberately not chased)
   written off        923 cases  (Rs 1,468,214)
-  double charges     0
+  double charges     not applicable -- no live debits are issued (item 3d)
 ```
 
 `md5 763fcd5cb36db1593189c08f2c59c70e` over that stdout. Item 3z moved it (each

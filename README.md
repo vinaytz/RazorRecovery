@@ -87,7 +87,7 @@ Two of these are the ones nobody else will have.
 |---|---|---|
 | **False chases per 10k** — contacts sent to people who already paid | **0.0** | 145.0 |
 | Contacts sent | 3,197 | 1,570 |
-| Double charges | **0** | — |
+| Double charges | *not applicable* | — |
 | Left alone on purpose | **1,021 cases, Rs 1,178,987** | 0 |
 | Written off | 923 cases, Rs 1,468,214 | 1,206 |
 
@@ -95,6 +95,14 @@ Two of these are the ones nobody else will have.
 baseline fires on schedule without re-reading payment state, which is what
 real fixed-schedule tools do. `WAIT` scores exactly `0.0`, so `best_ev <= 0`
 means leave them alone — and roughly half of all cases land there.
+
+**Double charges reads *not applicable*, not 0.** It was a literal 0 for most of
+this project's life and it looked like a safety result. Nothing could ever
+increment it: `RazorpayExecutor` records RETRY as `INTENT_ONLY`, so no
+server-initiated debit is ever issued and there is no charge that could be sent
+twice. Item 3d relabelled it. The false-chase 0 above is a *real* zero — the same
+counter reads 145.0 for the baseline in the same run, which is what makes the
+engine's 0 evidence rather than an absence. See "dead metrics" below.
 
 `where_we_lost` renders empty on this preset: the engine does not underperform
 control in any failure-class segment. That is a real result, not a broken query.
@@ -445,6 +453,35 @@ The honest reading of this one is that we shipped a headline of Rs 977,702 and
 Rs 23,650 of it was cross-arm contamination. A lower number that survives the
 question beats a higher one that needs a paragraph.
 
+**Three dead metrics: a zero, and two gates nothing feeds.** `double_charges: 0`
+sat on the scoreboard for most of this project's life, reading as a prevented
+harm. Nothing in the codebase could increment it. `RazorpayExecutor` records RETRY
+as `INTENT_ONLY` — no server-initiated debit is ever issued — so there is no
+charge that could be sent twice, and the simulator has no debit path either. It
+was not a prevented zero, it was an inapplicable metric wearing a safety metric's
+clothes. It now reports `not applicable` with the reason attached, and `ArmResult`
+no longer carries the field.
+
+Auditing the rest of the honesty counters for the same shape found two more, both
+gates rather than counters:
+
+- **G2_PROMISED never fires anywhere.** `promised_until` has no assignment in the
+  entire codebase — the gate is correct and unit-tested, and nothing feeds it.
+  Item 3e (promise-to-pay ingestion) would have; 3e was cut for time.
+- **G4_OPTED_OUT fires 114 times in the benchmark and can never fire live**,
+  because `app/workers/live.py` hardcodes `opted_out=False`. One field, two paths,
+  one of them dead.
+
+Both are pinned rather than fixed, in `tests/test_dead_metrics.py`. A known-dead
+metric that is pinned is honest; an unpinned one becomes a claim the moment
+somebody writes a README sentence about it. If a later item feeds one of these,
+its test goes red and names the sentence here that has gone stale.
+
+The test that makes the relabel mean anything is the contrast one: it asserts
+`false_chase_per_10k_baseline > 0`. **A zero is only evidence when something else
+in the same instrument can be non-zero.** That is the whole rule, and it is the
+rule the original `double_charges: 0` broke.
+
 **A test that passes for the wrong reason is worse than no test.** No test is an
 admitted gap. A green test is a claim of coverage, and a false one costs you the
 attention you would otherwise have spent looking. Three of the ones above were
@@ -545,8 +582,8 @@ PYTHONPATH=. pytest tests/ -q      # 335 passed
 covers gate ordering, G0 first. `test_idempotency.py` covers duplicate defence.
 `test_webhooks.py` covers signature verification on raw bytes and
 success-closes-case. `test_llm.py` covers enum coercion, prompt injection, and
-every Gemini failure path. `test_arm_independence.py` pins the last entry
-in the bugs section above.
+every Gemini failure path. `test_arm_independence.py` and `test_dead_metrics.py`
+pin the last two entries in the bugs section above.
 
 ---
 

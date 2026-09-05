@@ -716,6 +716,8 @@ async function loadBoard(){
      `a fixed retry-and-remind ladder got ${R(h.baseline_gross)} on the same traffic`],
     ["False chase rate", o.false_chase_per_10k_engine+" / 10k",
      `customers contacted about money they had already paid · baseline ${o.false_chase_per_10k_baseline} / 10k`],
+    ["Double charges", o.double_charges_status || "not applicable",
+     o.double_charges_why || "no live debits are issued"],
     ["Left alone on purpose", o.left_alone_count.toLocaleString(),
      R(o.left_alone_value)+" the engine judged it would do better not to touch"],
     ["Written off", o.written_off_count.toLocaleString(),

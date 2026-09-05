@@ -74,7 +74,12 @@ class ArmResult:
     written_off_count: int = 0
     written_off_value: int = 0
     false_chases: int = 0
-    double_charges: int = 0
+    # `double_charges` used to live here. It was removed in item 3d: no code path
+    # ever incremented it, because nothing issues a server-initiated debit, so it
+    # could only ever report 0 -- and a safety counter stuck at 0 reads as a
+    # prevented risk. `app/metrics.py` now states the metric is inapplicable and
+    # says why. Do not re-add it as a counter unless something can actually
+    # increment it; `tests/test_dead_metrics.py` will fail if you do.
     left_alone_count: int = 0
     left_alone_value: int = 0
     by_segment: dict = field(default_factory=dict)

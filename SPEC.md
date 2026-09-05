@@ -338,13 +338,21 @@ headline: incremental = engine.gross - control.gross
           pct_of_oracle = (engine - control) / (oracle - control)
 
 honesty:  false_chase_per_10k     contacts to already-settled obligations
-          double_charge_count     must be 0
+          double_charge_count     NOT BUILT -- see below
           sleeping_dogs_avoided   count + ₹ value deliberately not chased
           where_we_lost           segments where engine recovery < control recovery
 ```
 
 `false_chase_per_10k` and `where_we_lost` are the two metrics nobody else will have.
 Put them on the dashboard, not just in the JSON.
+
+**`double_charge_count` was specified as "must be 0" and shipped as a literal 0
+that nothing could ever increment** (item 3d). There is no server-initiated debit
+in this build — `RazorpayExecutor` records RETRY as `INTENT_ONLY` — so no event
+exists that could raise the count, and a safety metric pinned at 0 by the absence
+of the thing it measures is worse than no metric. The scoreboard now reports
+`"not applicable -- no live debits are issued"` with the reason attached.
+`tests/test_dead_metrics.py` stops it coming back as a counter.
 
 ---
 

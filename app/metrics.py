@@ -89,7 +89,24 @@ def scoreboard(results: dict, per_case: dict | None = None, n_cases: int = 0) ->
         "false_chase_per_10k_engine": round(10_000 * engine.false_chases / max(1, engine.cases), 2),
         "false_chase_per_10k_baseline": round(
             10_000 * baseline.false_chases / max(1, baseline.cases), 2) if baseline else None,
-        "double_charges": engine.double_charges,
+        # Item 3d. This used to report `engine.double_charges`, which is 0 -- and it
+        # is 0 because NOTHING IN THE CODEBASE EVER INCREMENTS IT. There is no
+        # server-initiated debit to double: `RazorpayExecutor` records RETRY as
+        # INTENT_ONLY and the simulator has no debit path either, so no event
+        # exists that could raise the count. A safety metric reading 0 says "we
+        # prevented this"; this one measured nothing at all. Stated instead.
+        #
+        # Contrast `false_chase_per_10k_engine`, which is also 0 for the engine:
+        # that counter has live increment sites and the baseline arm scores 145.0
+        # on the same run, which is what makes the engine's 0 a result rather than
+        # an absence.
+        "double_charges": None,
+        "double_charges_status": "not applicable -- no live debits are issued",
+        "double_charges_why": (
+            "RETRY is INTENT_ONLY: RazorpayExecutor never sends a server-initiated "
+            "debit, so there is no charge that could be issued twice. This is not a "
+            "prevented-zero, it is an inapplicable metric, and it is reported that "
+            "way rather than as a 0 that looks like a win."),
         "left_alone_count": engine.left_alone_count,
         "left_alone_value": engine.left_alone_value,
         "written_off_count": engine.written_off_count,
