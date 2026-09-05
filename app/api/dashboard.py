@@ -141,6 +141,48 @@ def demo_fail(name: str = "01_payment_failed_insufficient_funds.json",
     return out
 
 
+@router.post("/demo/downtime")
+def demo_downtime(method: str = "card", resolve: bool = False, minutes_ago: int = 4):
+    """Put a method into downtime, or take it out. Same ingest path as a webhook.
+
+    The fixture is enough to prove the handler works, and `tests/test_downtime.py`
+    uses exactly that. It is not enough to DEMO it: fixture 05 carries a fixed
+    `begin` epoch, so replaying it shows an outage that started months ago and the
+    Ops strip reads "191d 21h" -- true, and indistinguishable from a bug to anyone
+    watching. This rewrites the two timestamps to now and leaves everything else in
+    the payload alone, including the entity shape and the instrument.
+
+    `minutes_ago` sets how long the outage has been running, because the interesting
+    frame is a downtime that is already a few minutes old. Nothing here invents an
+    END time: `resolve=false` sends `end: null` exactly as Razorpay does, and
+    `resolve=true` sends a real `.resolved` with the end Razorpay would have put on
+    it -- which is us relaying a stated fact, not predicting one.
+    """
+    name = ("09_payment_downtime_resolved.json" if resolve
+            else "05_payment_downtime_started.json")
+    payload = json.loads((webhooks.FIXTURES / name).read_text())
+    ent = payload["payload"]["payment.downtime"]["entity"]
+
+    now = datetime.now()
+    began = now - timedelta(minutes=max(0, int(minutes_ago)))
+    # One id per method, so a resolve pairs with the start it belongs to rather
+    # than falling back to the by-method clear.
+    ent["id"] = f"down_DEMO_{method}"
+    ent["method"] = method
+    ent["begin"] = int(began.timestamp())
+    ent["end"] = int(now.timestamp()) if resolve else None
+    ent["created_at"] = ent["begin"]
+    ent["updated_at"] = int(now.timestamp())
+    payload["id"] = f"evt_DEMO{now.strftime('%H%M%S%f')[:10]}"
+
+    out = ingest_ctl.ingest(con(), payload, now=now)
+    out["seeded_from"] = name
+    out["next"] = ("GET /api/ops/attention shows it while it is open. it will not "
+                   "clear on its own -- POST /api/demo/downtime?resolve=true"
+                   f"&method={method} is the only thing that lifts it")
+    return out
+
+
 @router.post("/worker/tick")
 def worker_tick():
     """Run one live decide-and-execute pass by hand. The loop does this on a timer."""

@@ -143,6 +143,45 @@ CREATE TABLE IF NOT EXISTS ops_audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, who TEXT,
   key TEXT NOT NULL, before TEXT, after TEXT, note TEXT);
 CREATE INDEX IF NOT EXISTS ix_ops_audit_at ON ops_audit(at);
+
+-- ISSUER DOWNTIME, as Razorpay reports it and no further. Gate G9 defers every
+-- case on that method while a row here is unresolved.
+--
+-- A row rather than a flag, for the pauses reason: "UPI was down 14:02-14:19,
+-- severity high, HDFC netbanking" is the first post-incident question, and it is
+-- also the only way to explain a retry that did not happen.
+--
+-- `ends_at` IS NULL ALMOST ALWAYS, AND THAT IS THE POINT. Razorpay sends
+-- `end: null` on payment.downtime.started, because nobody knows when an outage
+-- will lift. There is nothing to copy, so nothing is written. We do not estimate
+-- it. G9 falls back to `downtime_backoff_minutes`, which is a re-check interval
+-- and not a forecast -- it says "ask again in 15 minutes", never "this ends at
+-- 14:19". The one case it gets populated is a `scheduled: true` maintenance
+-- window that arrives carrying an `end`, which is Razorpay telling us a fact
+-- rather than us inventing one.
+--
+-- NOTHING EXPIRES A ROW BUT A `.resolved` EVENT, so know the cost before touching
+-- this. G9 sets `wait_until`, and `engine.decide` returns WAIT for ANY gate that
+-- set one -- so an unresolved row does not merely block RETRY, it holds the whole
+-- case, fifteen minutes at a time, until `window_hours` closes and it is written
+-- off. A lost resolve webhook therefore looks like a rise in write-offs on one
+-- method a week later, not like an outage.
+--
+-- The tempting fix -- age the row out after N hours -- is worse, and is exactly
+-- the end-time guess this table refuses to make: it would have us decide an outage
+-- was over with no evidence and send customers at a dead rail silently. So
+-- `ops.attention` makes the stuck row loud for a human instead, and a human is the
+-- escape hatch. `tests/test_downtime.py` pins both halves.
+CREATE TABLE IF NOT EXISTS downtimes (
+  id TEXT PRIMARY KEY,              -- Razorpay's downtime id; `.resolved` finds it by this
+  method TEXT NOT NULL,
+  instrument TEXT,                  -- JSON as sent: {"bank": "HDFC"}, {"psp": "..."}
+  severity TEXT,                    -- low | medium | high. recorded, not yet a threshold
+  scheduled INTEGER DEFAULT 0,
+  status TEXT NOT NULL,             -- started | resolved
+  began_at TEXT, ends_at TEXT,      -- ends_at: NULL unless Razorpay named one
+  resolved_at TEXT, seen_at TEXT, updated_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_downtimes_live ON downtimes(method, status);
 """
 
 # Columns added after the first release. sqlite has no "ADD COLUMN IF NOT EXISTS",
@@ -416,6 +455,90 @@ def checkout_counts(con) -> dict:
                        " FROM checkouts GROUP BY status")
     return {r["status"]: {"n": r["n"], "amount": r["amount"]} for r in rows}
 
+
+# -- downtime --------------------------------------------------------------
+# Razorpay's issuer-outage feed, stored and read back. Gate G9 is the consumer.
+# See the `downtimes` DDL above for why `ends_at` is almost always NULL and why
+# nothing here ever expires a row on a timer.
+
+def record_downtime(con, *, downtime_id: str, method: str, instrument: str | None,
+                    severity: str | None, scheduled: bool, began_at: str | None,
+                    ends_at: str | None, seen_at: str) -> bool:
+    """A `payment.downtime.started` arrived. Returns False if we already had it.
+
+    UPSERT keyed on Razorpay's downtime id, so a re-delivered `.started` does not
+    create a second outage on the same method -- and, more importantly, does not
+    reopen one we have already seen resolved. That last case is the reason the
+    UPDATE clause is `WHERE status = 'started'`: webhook order is not guaranteed,
+    and a `.started` redelivered after its `.resolved` must not un-resolve it.
+
+    A row already resolved therefore stays resolved and this returns False, which
+    is the same answer as "we already knew" -- the caller cannot distinguish the
+    two and does not need to.
+
+    Freshness comes from the SELECT rather than `rowcount`, because the UPSERT
+    reports a row touched on a re-delivery too: an outage we already knew about
+    would otherwise be announced as new every time Razorpay retried the event.
+    """
+    prior = con.execute("SELECT status FROM downtimes WHERE id = ?",
+                        (downtime_id,)).fetchone()
+    con.execute(
+        "INSERT INTO downtimes (id, method, instrument, severity, scheduled, status,"
+        " began_at, ends_at, resolved_at, seen_at, updated_at)"
+        " VALUES (?,?,?,?,?,'started',?,?,NULL,?,?)"
+        " ON CONFLICT(id) DO UPDATE SET"
+        "   severity = excluded.severity, ends_at = excluded.ends_at,"
+        "   updated_at = excluded.updated_at"
+        " WHERE downtimes.status = 'started'",
+        (downtime_id, method, instrument, severity, int(bool(scheduled)),
+         began_at, ends_at, seen_at, seen_at))
+    con.commit()
+    return prior is None
+
+
+def resolve_downtime(con, *, downtime_id: str, method: str, when: str,
+                     ends_at: str | None = None) -> int:
+    """A `payment.downtime.resolved` arrived. The only thing that clears a row.
+
+    Falls back to `method` when the id is unknown, because a resolve for an outage
+    that started before this process did is the case that matters: refusing it
+    would leave RETRY blocked on that method with no event left that can lift it.
+    Resolving by method is broader than the id, and broader in the direction of
+    letting money move again, which is the safe direction for an *unblock* only
+    because G9 is not the last line of defence -- the execute path re-checks
+    payment state before every action regardless.
+    """
+    cur = con.execute(
+        "UPDATE downtimes SET status = 'resolved', resolved_at = ?, updated_at = ?,"
+        " ends_at = COALESCE(?, ends_at) WHERE id = ? AND status = 'started'",
+        (when, when, ends_at, downtime_id))
+    if not cur.rowcount:
+        cur = con.execute(
+            "UPDATE downtimes SET status = 'resolved', resolved_at = ?, updated_at = ?,"
+            " ends_at = COALESCE(?, ends_at) WHERE method = ? AND status = 'started'",
+            (when, when, ends_at, method))
+    con.commit()
+    return cur.rowcount
+
+
+def active_downtime(con, method: str) -> dict | None:
+    """The unresolved outage on this method, if there is one. G9's input.
+
+    Newest first, so overlapping outages on one method report the most recent --
+    and `ends_at` is returned exactly as stored, which means None unless Razorpay
+    named an end. The caller must not fill it in.
+    """
+    r = con.execute(
+        "SELECT * FROM downtimes WHERE method = ? AND status = 'started'"
+        " ORDER BY COALESCE(began_at, seen_at) DESC LIMIT 1", (method,)).fetchone()
+    return dict(r) if r else None
+
+
+def open_downtimes(con) -> list[dict]:
+    """Every unresolved outage. What the Ops attention list shows."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM downtimes WHERE status = 'started'"
+        " ORDER BY COALESCE(began_at, seen_at)")]
 
 
 # -- reads ----------------------------------------------------------------

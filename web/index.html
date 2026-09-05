@@ -917,6 +917,12 @@ let OPS = null, QDIRTY = false;
 const WHO = () => ($("#ops_who").value || "operator").trim();
 const HH = h => String(h).padStart(2, "0") + ":00";
 const WHEN = s => s ? s.replace("T", " ").slice(0, 19) : "—";
+// Minutes, said the way a person would. An outage open for four days should not
+// read "5760m" on a strip somebody scans at 2am.
+const FOR = m => m == null ? "—"
+  : m < 90 ? `${m}m`
+  : m < 60 * 36 ? `${Math.floor(m / 60)}h ${m % 60}m`
+  : `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
 const Q = o => new URLSearchParams(
   Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== "")).toString();
 
@@ -1065,6 +1071,20 @@ async function loadAttention(){
        <tbody>${rows.map(cells).join("")}</tbody></table></div>`
     : "";
   const html = [
+    block("Issuer down, and nothing here will time it out", "Razorpay said this method "
+      + "is down, so G9 blocks retries on it and holds every other case on it too — "
+      + "a pay link pointing at a dead rail burns a contact slot to say nothing. Only "
+      + "a <code>.resolved</code> webhook clears it; we never guess when an outage "
+      + "ends. A row still open after an implausible number of minutes means the "
+      + "resolve was dropped, and those cases will be written off in a week unless a "
+      + "human makes the call.",
+      a.open_downtimes || [], ["Method", "Instrument", "Severity", "Open for", "Ends at", "Blocks"],
+      r=>`<tr class="${(r.open_for_minutes ?? 0) > 180 ? "lost" : ""}">
+          <td>${say(r.method)}</td><td>${r.instrument || "—"}</td>
+          <td>${say(r.severity || "—")}</td>
+          <td class="num">${FOR(r.open_for_minutes)}</td>
+          <td>${r.ends_at_known ? WHEN(r.ends_at) : "unknown — none was sent"}</td>
+          <td>${r.blocks}</td></tr>`),
     block("Stuck on unknown", "an executor call timed out, so we do not know whether "
       + "money moved. Reconcile asks the source of truth.",
       a.unknown_actions, ["Action", "Case", "Type", "Attempts", "Detail"],

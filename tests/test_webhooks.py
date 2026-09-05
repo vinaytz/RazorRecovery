@@ -147,11 +147,18 @@ def test_subscription_halted_keys_on_subscription(client):
     assert b["failure_class"] == "MANDATE_INVALID"
 
 
-def test_downtime_event_stored_not_a_case(client):
+def test_downtime_event_records_an_outage_and_opens_no_case(client):
+    """Item 3b. A downtime is not a debt: it changes what we may do, not what we owe.
+
+    Before 3b this branch replied "noted" and wrote nothing, so G9 never saw an
+    outage on the live path. The row is now the assertion -- `tests/test_downtime.py`
+    covers the rest of the round trip.
+    """
     c, con = client
     b = post(c, load("05_payment_downtime_started.json")).json()
-    assert b["action"] == "noted"
+    assert b["action"] == "downtime_recorded"
     assert con.execute("SELECT COUNT(*) FROM cases").fetchone()[0] == 0
+    assert store.active_downtime(con, "netbanking") is not None
 
 
 def test_unknown_event_type_does_not_500(client):
@@ -176,12 +183,17 @@ def test_replay_all_fixtures(client):
     r = c.post("/webhooks/razorpay/replay")
     assert r.status_code == 200
     b = r.json()
-    assert b["replayed"] == 8
+    assert b["replayed"] == 9
     assert all(x["signature_verified"] for x in b["results"])
+    # A full replay ends with the downtime resolved, because fixture 09 follows 05
+    # alphabetically and the replay is sorted. That ordering is load-bearing: a
+    # replay that left netbanking down would block RETRY on it for the rest of the
+    # demo, and nothing in this system times an outage out.
+    assert store.active_downtime(con, "netbanking") is None
 
 
-def test_eight_fixtures_on_disk():
-    assert len(sorted(FIXTURES.glob("*.json"))) == 8
+def test_nine_fixtures_on_disk():
+    assert len(sorted(FIXTURES.glob("*.json"))) == 9
 
 
 # -- classifier ------------------------------------------------------------

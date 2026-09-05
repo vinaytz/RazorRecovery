@@ -212,10 +212,11 @@ P9  README.md + the 5-minute video   ← 90 min, frozen, no code. Set an alarm.
 
 ```
 app/api/webhooks.py          POST /webhooks/razorpay + /replay + /fixtures
-app/controllers/ingest.py    classify, obligation identity, open/close case
+app/controllers/ingest.py    classify, obligation identity, open/close case, downtime
 app/services/executor.py     RazorpayExecutor filled in (DRY_RUN default)
-fixtures/webhooks/*.json     5 payloads
+fixtures/webhooks/*.json     9 payloads
 tests/test_webhooks.py       21 tests
+tests/test_downtime.py       18 tests (item 3b)
 ```
 
 **No live tunnel.** This box has no `ngrok`/`cloudflared`, no Razorpay
@@ -233,6 +234,23 @@ What is genuinely exercised: HMAC-SHA256 over the raw body, 400 on bad or
 missing signature, `UNIQUE(events.dedupe_key)` absorbing retries, error_reason →
 `FailureClass`, obligation keyed on order/invoice/subscription rather than
 payment id, and success events closing cases + cancelling pending actions.
+
+**Item 3b added the downtime feed.** `payment.downtime.started`/`.resolved` write
+a row in `downtimes`, and `app/workers/live.py::snapshot` carries it into
+`method_in_downtime` — before 3b that branch replied "noted" and wrote nothing, so
+G9 was a gate wired to a constant `False` on the live path. Two things to know:
+
+- **No end time is ever guessed.** A live outage sends `end: null`, so
+  `downtime_ends_at` stays None and G9 falls back to `downtime_backoff_minutes`,
+  which is a re-check interval and not a forecast. Only a `scheduled: true` window
+  that actually carries an `end` populates it.
+- **An outage defers the whole case, not just its retries.** G9 sets `wait_until`,
+  and `engine.decide` returns WAIT for any gate that set one. Nothing goes out on
+  that method — not a reminder, not a pay link — until a `.resolved` arrives or
+  `window_hours` closes and the case is written off. Nothing expires a row on a
+  timer; `GET /api/ops/attention` makes a stuck one loud instead, and a human is
+  the escape hatch. `POST /api/demo/downtime?method=upi` opens one on camera with a
+  timestamp of now, `&resolve=true` clears it.
 
 `RazorpayExecutor.execute` never debits a card. `DRY_RUN=true` returns a
 would-do string; with `DRY_RUN=false` it creates payment links but records

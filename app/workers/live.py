@@ -267,12 +267,17 @@ class LiveWorker:
     def snapshot(self, case_row, now: datetime) -> CaseSnapshot | None:
         """Assemble what the engine is allowed to know, from stored rows only.
 
-        Every field is either on the case, on the obligation, or counted from the
-        contacts ledger. Nothing is inferred and nothing is invented: a field we
-        cannot source live gets its conservative value, not a plausible one. The
-        two that matter are `method_in_downtime` and `promised_until`, both False /
-        None today because nothing populates them yet -- items 3b and 3e. A comment
-        is the honest placeholder; a guess would be a silent one.
+        Every field is either on the case, on the obligation, counted from the
+        contacts ledger, or read from the downtime feed. Nothing is inferred and
+        nothing is invented: a field we cannot source live gets its conservative
+        value, not a plausible one. `promised_until` and `opted_out` are still None
+        and False because nothing populates them yet -- item 3e. A comment is the
+        honest placeholder; a guess would be a silent one.
+
+        `method_in_downtime` is real as of item 3b. `downtime_ends_at` usually is
+        not, and that is Razorpay's answer rather than a gap: `.started` carries
+        `end: null`, so the field stays None and G9 re-checks on
+        `downtime_backoff_minutes` instead of counting down to a time nobody knows.
         """
         ob = self.con.execute("SELECT * FROM obligations WHERE id = ?",
                               (case_row["obligation_id"],)).fetchone()
@@ -290,6 +295,9 @@ class LiveWorker:
             (case_row["obligation_id"],)).fetchone()
         last_contact = datetime.fromisoformat(last["t"]) if last and last["t"] else None
 
+        method = case_row["method"] or "card"
+        down = store.active_downtime(self.con, method)
+
         return CaseSnapshot(
             case_id=case_row["case_id"], obligation_id=ob["id"],
             customer_id=ob["customer_id"] or case_row["customer_id"],
@@ -299,7 +307,7 @@ class LiveWorker:
             amount_settled=int(ob["amount_settled"] or 0),
             kind=ObligationKind(case_row["kind"]), currency="INR",
             failure_class=FailureClass(case_row["failure_class"]),
-            method=case_row["method"] or "card",
+            method=method,
             # Only a subscription holds a mandate we could charge again. An order
             # does not, and assuming otherwise is what makes RETRY look free.
             is_mandate=(case_row["kind"] == ObligationKind.SUBSCRIPTION.value),
@@ -316,10 +324,30 @@ class LiveWorker:
             last_notice_sent_at=last_contact,
             afa_valid=True,
             obligation_settled=(ob["status"] == "SETTLED"),
-            method_in_downtime=False,     # item 3b populates this from the downtime feed
-            downtime_ends_at=None,
+            method_in_downtime=down is not None,
+            # Only if Razorpay named one. `downtime_end` returns None for the
+            # `end: null` that a live outage actually sends.
+            downtime_ends_at=self.downtime_end(down),
             pending_action_types=pending,
         )
+
+    @staticmethod
+    def downtime_end(down: dict | None) -> datetime | None:
+        """The outage's end, if Razorpay sent one. Never derived from anything else.
+
+        An unparseable stored value degrades to None, which is the conservative
+        direction: G9 then re-checks on its backoff instead of trusting a timestamp
+        it cannot read.
+        """
+        raw = (down or {}).get("ends_at")
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except (TypeError, ValueError):
+            log.warning("downtime %s has an unreadable ends_at %r -- treating as unknown",
+                        (down or {}).get("id"), raw)
+            return None
 
     def tenure_days(self, ob, now: datetime) -> int:
         """How long we have known this customer, from their oldest obligation."""

@@ -36,6 +36,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.config_loader import load_config
+from app.repos import store
 
 log = logging.getLogger("razorrecovery.ops")
 
@@ -398,13 +399,25 @@ def today(con, now: datetime | None = None) -> dict:
 # -- the attention list ----------------------------------------------------
 
 def attention(con, now: datetime | None = None) -> dict:
-    """The four things a human has to look at. Nothing here resolves itself.
+    """The five things a human has to look at. Nothing here resolves itself.
 
     UNKNOWN actions and FAILED actions are separate rows on purpose. UNKNOWN
     means we do not know whether money moved and the reconciler can answer it.
     FAILED means we do know, and nobody was told -- which is the gap
     `docs/evidence/pre_3a_wasted_rung.txt` found: an INTENT_ONLY retry burns a
     rung and is silent everywhere except a column in this table.
+
+    Open downtimes are here for the opposite reason to the others: most of them
+    resolve themselves within minutes and need nobody. The row exists because
+    nothing in this system ever expires one on a timer -- only Razorpay's
+    `.resolved` clears it (item 3b, and see the `downtimes` DDL on why guessing an
+    end time is the thing we refuse to do). A dropped resolve webhook therefore does
+    not just block RETRY on that method: G9 sets `wait_until`, so the engine defers
+    every open case on that method until `window_hours` closes and writes it off. It
+    would surface a week later as write-offs on one method, not as an outage.
+    `open_for_minutes` climbing past anything plausible is the only earlier signal.
+    Deciding an outage is over is a human's call, made here, not an inference the
+    engine makes quietly.
     """
     now = now or datetime.now()
     cfg = load_config()
@@ -425,14 +438,42 @@ def attention(con, now: datetime | None = None) -> dict:
         "SELECT case_id, obligation_id, customer_id, amount, rung, attempts,"
         " failure_class, opened_at FROM cases WHERE run_id = 'live' AND status = 'OPEN'"
         " AND rung >= ? ORDER BY amount DESC LIMIT 50", (cfg.max_rung - 1,))]
+    downtimes = [_downtime_row(r, now) for r in store.open_downtimes(con)]
 
     return {
         "unknown_actions": unknown,
         "failed_actions": failed,
         "at_contact_cap": capped,
         "ladder_top": top,
+        "open_downtimes": downtimes,
         "max_contacts_7d": cfg.max_contacts_7d,
         "max_rung": cfg.max_rung,
         "counts": {"unknown_actions": len(unknown), "failed_actions": len(failed),
-                   "at_contact_cap": len(capped), "ladder_top": len(top)},
+                   "at_contact_cap": len(capped), "ladder_top": len(top),
+                   "open_downtimes": len(downtimes)},
     }
+
+
+def _downtime_row(r: dict, now: datetime) -> dict:
+    """One unresolved outage, with how long it has been unresolved.
+
+    `ends_at` is passed through untouched and is usually None. The row says
+    "unknown" rather than filling in a number, because the whole point of item 3b
+    is that we do not have one.
+
+    `blocks` names the whole cost, not the obvious half: G9 blocks RETRY outright
+    AND sets `wait_until`, and the engine defers a case for any gate that set one.
+    So nothing goes out on this method while the row is open -- not a reminder, not
+    a pay link.
+    """
+    began = r.get("began_at") or r.get("seen_at")
+    mins = None
+    try:
+        if began:
+            mins = max(0, int((now - datetime.fromisoformat(began)).total_seconds() // 60))
+    except (TypeError, ValueError):
+        mins = None
+    return {**r, "open_for_minutes": mins,
+            "blocks": (f"RETRY on every {r.get('method')} case, and defers the rest"
+                       f" of the ladder on it"),
+            "ends_at_known": bool(r.get("ends_at"))}

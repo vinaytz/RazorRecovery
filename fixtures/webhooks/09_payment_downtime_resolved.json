@@ -1,0 +1,25 @@
+{
+  "entity": "event",
+  "account_id": "acc_TEST00000000001",
+  "event": "payment.downtime.resolved",
+  "contains": ["payment.downtime"],
+  "payload": {
+    "payment.downtime": {
+      "entity": {
+        "id": "down_TEST00000001",
+        "entity": "payment.downtime",
+        "method": "netbanking",
+        "begin": 1772000600,
+        "end": 1772001740,
+        "status": "resolved",
+        "scheduled": false,
+        "severity": "high",
+        "instrument": {"bank": "HDFC"},
+        "created_at": 1772000601,
+        "updated_at": 1772001745
+      }
+    }
+  },
+  "created_at": 1772001746,
+  "id": "evt_TEST0000000009"
+}

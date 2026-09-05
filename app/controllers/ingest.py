@@ -202,8 +202,7 @@ def ingest(con, payload: dict, headers: dict | None = None,
     elif event in WATCH_EVENTS:
         out.update(_watch_checkout(con, payload, oid, now))
     elif event in DOWNTIME_EVENTS:
-        out.update({"action": "noted",
-                    "verdict": "downtime recorded -- gate G9 blocks RETRY while it holds"})
+        out.update(_record_downtime(con, payload, event, now))
     else:
         out.update({"action": "stored_only",
                     "verdict": f"'{event}' stored, no case logic for this type"})
@@ -311,6 +310,88 @@ def _order_created_at(order: dict, payload: dict, now: datetime) -> str:
             except (OverflowError, OSError, ValueError):
                 continue
     return now.isoformat()
+
+
+def _record_downtime(con, payload: dict, event: str, now: datetime) -> dict:
+    """Razorpay says an issuer is down, or back. Store it. Predict nothing.
+
+    `app/workers/live.py::snapshot` is what carries a row here into the engine.
+    Before this handler existed the branch replied "downtime recorded -- gate G9
+    blocks RETRY while it holds" and recorded nothing at all, so the verdict was
+    false and every live snapshot said `method_in_downtime=False` through an outage.
+
+    WHAT AN OUTAGE COSTS IS THE WHOLE CASE, NOT JUST ITS RETRIES. G9 does two
+    things: it adds RETRY to `blocked_actions`, and it sets `wait_until`.
+    `app/domain/engine.py` returns WAIT for any gate that set a `wait_until` in the
+    future, so during a downtime the case does not fall through to REMIND or
+    PAY_LINK -- it waits. That is deliberate and predates this handler: the customer
+    cannot pay on a dead rail, so a "pay now" message points at one and burns a
+    contact slot to say nothing. It is written down because the first draft of this
+    item claimed the opposite. `downtime_backoff_minutes` is how long until we look
+    again, and `tests/test_downtime.py` pins it against the engine rather than
+    against the ladder, which never sees the wait.
+
+    THE END TIME IS COPIED, NEVER COMPUTED. `payment.downtime.started` carries
+    `end: null`, because nobody knows when an outage lifts. When that is what
+    arrives, `downtime_ends_at` stays None and G9 falls back to
+    `downtime_backoff_minutes` -- a re-check interval, not a forecast. A scheduled
+    maintenance window is the one case that arrives carrying a real `end`, and then
+    we use Razorpay's number. There is no branch here that estimates one.
+
+    WHAT THIS BLOCKS IS BROADER THAN THE OUTAGE. Razorpay scopes downtime to an
+    instrument -- HDFC netbanking, not netbanking -- and `CaseSnapshot` has a
+    `method` and no instrument. So an HDFC outage holds every netbanking case,
+    including ICICI's. That is over-blocking, it is stated rather than hidden, and
+    it errs toward not burning retries. The sharper cost is PAY_LINK, which is
+    method-agnostic in practice and gets deferred anyway. Narrowing either would
+    mean a new domain field and a matching change to `sim/runner.py`, which would
+    move the benchmark md5; the instrument is recorded here so a later item can do
+    that without re-ingesting anything.
+    """
+    d = (_entities(payload).get("payment.downtime") or {}).get("entity")
+    d = d if isinstance(d, dict) else {}
+    method = (d.get("method") or "").strip().lower() or "unknown"
+    did = str(d.get("id") or payload.get("id") or f"down_{method}_{now.isoformat()}")
+    resolved = event.endswith(".resolved")
+    ends_at = _epoch_iso(d.get("end"))
+
+    if resolved:
+        n = store.resolve_downtime(con, downtime_id=did, method=method,
+                                   when=now.isoformat(), ends_at=ends_at)
+        return {"action": "downtime_resolved" if n else "downtime_resolve_ignored",
+                "method": method, "downtime_id": did,
+                "verdict": (f"{method} downtime cleared -- G9 stops holding those cases"
+                            if n else
+                            f"no open {method} downtime to clear -- nothing changed")}
+
+    fresh = store.record_downtime(
+        con, downtime_id=did, method=method,
+        instrument=json.dumps(d["instrument"]) if isinstance(d.get("instrument"), dict) else None,
+        severity=(d.get("severity") or None), scheduled=bool(d.get("scheduled")),
+        began_at=_epoch_iso(d.get("begin")) or now.isoformat(), ends_at=ends_at,
+        seen_at=now.isoformat())
+    return {"action": "downtime_recorded" if fresh else "downtime_already_known",
+            "method": method, "downtime_id": did, "severity": d.get("severity"),
+            "ends_at": ends_at,
+            "verdict": (f"{method} is down -- G9 blocks RETRY and defers every open "
+                        f"{method} case "
+                        + ("until " + ends_at if ends_at else
+                           "until Razorpay sends .resolved. no end time was sent and "
+                           "none is guessed"))}
+
+
+def _epoch_iso(ts) -> str | None:
+    """Razorpay's Unix seconds -> iso. None stays None, and that is the point.
+
+    `end` is null on a live outage. Returning None here is what keeps
+    `downtime_ends_at` empty instead of inventing a plausible-looking timestamp.
+    """
+    if not isinstance(ts, int) or ts <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(ts).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _close_settled(con, payload: dict, oid: str, now: datetime) -> dict:

@@ -6,4 +6,5 @@ __pycache__/
 *.db-wal
 .llm_cache/
 results*.json
+server.log
 .venv/
