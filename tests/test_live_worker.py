@@ -147,9 +147,15 @@ def test_time_scale_cannot_reach_the_benchmark():
     byte-identical. Written this way it keeps testing the claim through every
     legitimate change to the core, instead of having to be re-pinned each time and
     briefly testing nothing while it is stale.
+
+    Every live-path env knob belongs in this list, and a new one is a new way for
+    the claim to become false quietly. `STALE_DOWNTIME_HOURS` (item 3b) joined it
+    the day it was added.
     """
-    absurd = _run_benchmark(TIME_SCALE="3600", ABANDON_MINUTES="1")
-    plain = _run_benchmark(TIME_SCALE="1", ABANDON_MINUTES="30")
+    absurd = _run_benchmark(TIME_SCALE="3600", ABANDON_MINUTES="1",
+                            STALE_DOWNTIME_HOURS="0")
+    plain = _run_benchmark(TIME_SCALE="1", ABANDON_MINUTES="30",
+                           STALE_DOWNTIME_HOURS="6")
     assert absurd == plain, "a live-path env var changed the benchmark output"
 
 

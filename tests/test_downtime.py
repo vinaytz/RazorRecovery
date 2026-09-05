@@ -23,6 +23,11 @@ Four things are pinned here, and the last two are the ones that matter.
      (3) forbids: it would have this system decide an outage was over with no
      evidence, and send customers at a dead rail silently. So the stuck row is made
      loud on the Ops attention list instead, and a human is the escape hatch.
+
+     `STALE_DOWNTIME_HOURS` (default 6) is how loud. Past it the row turns STALLED
+     and says what it has cost and what the two explanations are. That is the whole
+     of it: `test_stalled_changes_the_row_and_nothing_else` exists to keep the
+     threshold from ever growing into the expiry (4) forbids.
 """
 from __future__ import annotations
 
@@ -70,6 +75,17 @@ def resolved(**over) -> dict:
     p = load("09_payment_downtime_resolved.json")
     p["payload"]["payment.downtime"]["entity"].update(over)
     return p
+
+
+def began(hours_ago: float, **over) -> dict:
+    """A `.started` that began `hours_ago` before NOW.
+
+    Fixture 05 carries a fixed February epoch, which is thirteen days before NOW --
+    fine for the tests that only care whether a method is blocked, useless for the
+    ones about how long a row has been open. Those must state the age they mean
+    rather than inherit one.
+    """
+    return started(begin=int((NOW - timedelta(hours=hours_ago)).timestamp()), **over)
 
 
 def send(c, payload: dict, now: datetime = NOW) -> dict:
@@ -251,7 +267,8 @@ def test_a_redelivered_start_is_one_outage(con):
     second = send(con, again)
 
     assert first["action"] == "downtime_recorded"
-    assert second["action"] == "downtime_already_known"
+    assert second["action"] == "downtime_already_open"
+    assert second["blocking"] is True
     assert con.execute("SELECT COUNT(*) FROM downtimes").fetchone()[0] == 1
 
 
@@ -264,11 +281,19 @@ def test_a_start_redelivered_after_its_resolve_does_not_reopen_it(con):
     cid = case(con, method="netbanking")
     send(con, started())
     send(con, resolved())
-    send(con, dict(started(), id="evt_TEST0000000005_late"))
+    late = send(con, dict(started(), id="evt_TEST0000000005_late"))
 
     row = con.execute("SELECT status FROM downtimes").fetchone()
     assert row["status"] == "resolved"
     assert snapshot_of(con, cid).method_in_downtime is False
+
+    # And it says so. The reply used to be written from the payload, so it claimed
+    # "netbanking is down -- G9 blocks RETRY" with nothing blocked -- the same
+    # false-verdict defect this item exists to fix, one layer down.
+    assert late["action"] == "downtime_already_resolved"
+    assert late["blocking"] is False
+    assert "not reopening" in late["verdict"]
+    assert "nothing is being held" in late["verdict"]
 
 
 def test_a_resolve_for_an_outage_we_never_saw_still_clears_the_method(con):
@@ -446,6 +471,116 @@ def test_the_ladder_itself_still_offers_the_other_rungs(con):
     assert legal, "an outage on one method must not empty the ladder"
 
 
+# -- the stalled threshold -------------------------------------------------
+
+def test_a_fresh_downtime_is_open_not_stalled(con, monkeypatch):
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "6")
+    send(con, began(0.5))
+    a = ops.attention(con, NOW)
+    row = a["open_downtimes"][0]
+    assert row["state"] == "OPEN"
+    assert row["stalled"] is False
+    assert row["note"] is None, "a five-minute outage must not shout"
+    assert a["counts"]["stalled_downtimes"] == 0
+
+
+def test_past_the_threshold_it_becomes_stalled_and_says_what_that_means(con, monkeypatch):
+    """The row an operator who was not woken by anything else has to be able to read.
+
+    The failure this catches is silent and slow: a dropped `.resolved` holds every
+    case on that method until `window_hours` writes them off, so it shows up as a
+    rise in write-offs a week later. At hour 1 there is nothing to distinguish a
+    genuine outage from a lost webhook. By hour 6 there is, so the row stops being
+    a fact and starts being a question addressed to a person.
+    """
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "6")
+    send(con, began(9))
+
+    a = ops.attention(con, NOW)
+    row = a["open_downtimes"][0]
+    assert row["state"] == "STALLED"
+    assert row["stalled"] is True
+    assert a["counts"]["stalled_downtimes"] == 1
+    assert a["stalled_downtimes"] == [row]
+    assert a["stale_downtime_hours"] == 6
+
+    # The copy has to name the cost, both explanations, and the right fix.
+    note = row["note"]
+    assert "no .resolved received" in note
+    assert "netbanking" in note and "9h 0m" in note
+    assert "genuinely ongoing" in note and "missed the resolve" in note
+    assert "replaying the resolved webhook" in note
+    assert "not by editing the table" in note
+
+
+def test_stalled_changes_the_row_and_nothing_else(con, monkeypatch):
+    """The load-bearing half. STALLED is a label, not an expiry.
+
+    If a future change makes this threshold clear the row, unblock the method, or
+    touch a case, this test fails -- and the fix is not to delete it. Expiring on a
+    timer is the end-time guess item 3b exists to refuse.
+    """
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "6")
+    cid = case(con, method="netbanking")
+    send(con, began(30))
+
+    assert ops.attention(con, NOW)["counts"]["stalled_downtimes"] == 1
+
+    # Still down, still blocking, still unresolved, still one row.
+    assert store.active_downtime(con, "netbanking") is not None
+    assert con.execute("SELECT status FROM downtimes").fetchone()["status"] == "started"
+    snap = snapshot_of(con, cid, NOW)
+    assert snap.method_in_downtime is True
+    assert snap.downtime_ends_at is None, "stalling must not invent an end time"
+    assert ActionType.RETRY in run_gates(snap, CFG).blocked_actions
+
+    # And reading the attention list twice does not quietly change anything.
+    ops.attention(con, NOW)
+    assert store.active_downtime(con, "netbanking") is not None
+
+
+def test_the_threshold_is_configurable_and_a_bad_value_does_not_silence_it(con, monkeypatch):
+    """`STALE_DOWNTIME_HOURS`, read per call so a demo can set 0 and show the row.
+
+    Every failure mode goes to the default rather than to "never stalls". An alarm
+    that a typo can switch off is not an alarm.
+    """
+    monkeypatch.delenv("STALE_DOWNTIME_HOURS", raising=False)
+    assert ops.stale_downtime_hours() == ops.DEFAULT_STALE_DOWNTIME_HOURS
+
+    for bad in ("", "soon", "-3", "six"):
+        monkeypatch.setenv("STALE_DOWNTIME_HOURS", bad)
+        assert ops.stale_downtime_hours() == ops.DEFAULT_STALE_DOWNTIME_HOURS, bad
+
+    send(con, began(3))
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "0")
+    assert ops.attention(con, NOW)["open_downtimes"][0]["stalled"] is True
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "48")
+    assert ops.attention(con, NOW)["open_downtimes"][0]["stalled"] is False
+
+
+def test_an_unreadable_began_at_is_open_not_stalled(con, monkeypatch):
+    """We do not know how long it has been open, so we do not claim it is stalled."""
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "6")
+    send(con, began(9))
+    con.execute("UPDATE downtimes SET began_at = 'not a date', seen_at = 'nor this'")
+    con.commit()
+    row = ops.attention(con, NOW)["open_downtimes"][0]
+    assert row["open_for_minutes"] is None
+    assert row["state"] == "OPEN" and row["note"] is None
+
+
+def test_resolving_a_stalled_downtime_clears_it_like_any_other(con, monkeypatch):
+    monkeypatch.setenv("STALE_DOWNTIME_HOURS", "6")
+    send(con, began(20))
+    assert ops.attention(con, NOW)["counts"]["stalled_downtimes"] == 1
+
+    send(con, resolved())
+    a = ops.attention(con, NOW)
+    assert a["counts"]["open_downtimes"] == 0
+    assert a["counts"]["stalled_downtimes"] == 0
+
+
 # -- the demo endpoint -----------------------------------------------------
 
 def test_the_demo_endpoint_uses_now_and_still_invents_no_end_time(con, monkeypatch):
@@ -467,13 +602,59 @@ def test_the_demo_endpoint_uses_now_and_still_invents_no_end_time(con, monkeypat
     assert out["action"] == "downtime_recorded"
     row = store.active_downtime(con, "upi")
     assert row["ends_at"] is None, "a demo outage must not know when it ends either"
-    began = datetime.fromisoformat(row["began_at"])
-    age = (datetime.now() - began).total_seconds() / 60
+    start = datetime.fromisoformat(row["began_at"])
+    age = (datetime.now() - start).total_seconds() / 60
     assert 3 <= age <= 6, f"began_at should be ~4 minutes ago, got {age:.1f}m"
 
     # And the pairing works, so a demo can be undone on camera in one click.
     assert dashboard.demo_downtime(method="upi", resolve=True)["action"] == "downtime_resolved"
     assert store.active_downtime(con, "upi") is None
+
+
+def test_the_demo_button_still_works_the_second_time_it_is_pressed(con, monkeypatch):
+    """The bug this test was written for, found by pressing the button twice.
+
+    The first draft reused `down_DEMO_{method}` as a fixed id, so a resolve would
+    pair with its own start. It does -- once. The second start on that method hit an
+    id already marked resolved, `record_downtime` correctly refused to reopen it
+    (webhook order is not guaranteed, and that refusal is load-bearing), and the
+    endpoint replied "upi is down -- G9 blocks RETRY" with nothing blocked at all.
+
+    That is the same defect as the branch this whole item replaced: a verdict
+    claiming a block that is not there. It survived the first round of tests because
+    every one of them used a fresh database, and a demo does not.
+    """
+    from app.api import dashboard
+
+    monkeypatch.setattr(dashboard, "_con", con)
+    cid = case(con, method="upi")
+
+    for round_ in (1, 2, 3):
+        out = dashboard.demo_downtime(method="upi", minutes_ago=4)
+        assert out["action"] == "downtime_recorded", round_
+        assert out["blocking"] is True, round_
+        assert snapshot_of(con, cid).method_in_downtime is True, round_
+
+        out = dashboard.demo_downtime(method="upi", resolve=True)
+        assert out["action"] == "downtime_resolved", round_
+        assert store.active_downtime(con, "upi") is None, round_
+        assert snapshot_of(con, cid).method_in_downtime is False, round_
+
+    # Three separate outages, each with its own id and its own resolve. Not one row
+    # flipped back and forth -- an outage is an event, and the history is the point.
+    rows = con.execute("SELECT id, status FROM downtimes ORDER BY id").fetchall()
+    assert len(rows) == 3
+    assert {r["status"] for r in rows} == {"resolved"}
+    assert len({r["id"] for r in rows}) == 3
+
+
+def test_a_demo_resolve_with_nothing_open_does_not_claim_it_cleared_one(con, monkeypatch):
+    from app.api import dashboard
+
+    monkeypatch.setattr(dashboard, "_con", con)
+    out = dashboard.demo_downtime(method="upi", resolve=True)
+    assert out["action"] == "downtime_resolve_ignored"
+    assert "nothing changed" in out["verdict"]
 
 
 # -- and the benchmark is not wired to any of this -------------------------

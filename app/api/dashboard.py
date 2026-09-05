@@ -153,10 +153,20 @@ def demo_downtime(method: str = "card", resolve: bool = False, minutes_ago: int 
     the payload alone, including the entity shape and the instrument.
 
     `minutes_ago` sets how long the outage has been running, because the interesting
-    frame is a downtime that is already a few minutes old. Nothing here invents an
-    END time: `resolve=false` sends `end: null` exactly as Razorpay does, and
+    frame is a downtime that is already a few minutes old -- and it is also how you
+    demo a STALLED row without waiting `STALE_DOWNTIME_HOURS`. Nothing here invents
+    an END time: `resolve=false` sends `end: null` exactly as Razorpay does, and
     `resolve=true` sends a real `.resolved` with the end Razorpay would have put on
     it -- which is us relaying a stated fact, not predicting one.
+
+    EACH START GETS A FRESH ID, and the first draft did not. It reused
+    `down_DEMO_{method}` on the theory that a fixed id let a resolve pair with its
+    own start. It does -- once. The second start on that method hit an id already
+    marked resolved, `record_downtime` correctly refused to reopen it (webhook order
+    is not guaranteed), and the endpoint replied "{method} is down -- G9 blocks
+    RETRY" with nothing whatsoever blocked. A demo button that lies the second time
+    it is pressed is worse than no demo button. The pairing is kept by looking the
+    open row up on resolve rather than by guessing its id.
     """
     name = ("09_payment_downtime_resolved.json" if resolve
             else "05_payment_downtime_started.json")
@@ -164,16 +174,25 @@ def demo_downtime(method: str = "card", resolve: bool = False, minutes_ago: int 
     ent = payload["payload"]["payment.downtime"]["entity"]
 
     now = datetime.now()
-    began = now - timedelta(minutes=max(0, int(minutes_ago)))
-    # One id per method, so a resolve pairs with the start it belongs to rather
-    # than falling back to the by-method clear.
-    ent["id"] = f"down_DEMO_{method}"
+    begun = now - timedelta(minutes=max(0, int(minutes_ago)))
+    stamp = now.strftime("%H%M%S%f")[:10]
+
+    if resolve:
+        # Pair with the outage that is actually open, whatever its id. Falls back to
+        # a fresh id, which `resolve_downtime` clears by method -- the same path a
+        # resolve for an outage that began before this process took.
+        open_row = store.active_downtime(con(), method)
+        ent["id"] = open_row["id"] if open_row else f"down_DEMO_{method}_{stamp}"
+        ent["end"] = int(now.timestamp())
+    else:
+        ent["id"] = f"down_DEMO_{method}_{stamp}"
+        ent["end"] = None
+
     ent["method"] = method
-    ent["begin"] = int(began.timestamp())
-    ent["end"] = int(now.timestamp()) if resolve else None
+    ent["begin"] = int(begun.timestamp())
     ent["created_at"] = ent["begin"]
     ent["updated_at"] = int(now.timestamp())
-    payload["id"] = f"evt_DEMO{now.strftime('%H%M%S%f')[:10]}"
+    payload["id"] = f"evt_DEMO{stamp}"
 
     out = ingest_ctl.ingest(con(), payload, now=now)
     out["seeded_from"] = name

@@ -29,7 +29,7 @@ sim/runner.py              four-arm harness on a virtual clock
 run_benchmark.py           the experiment
 main.py                    FastAPI entrypoint
 config/default.yaml        every tunable, already chosen
-tests/                     290 passing tests
+tests/                     316 passing tests (290 at P6; batch 3 adds to this)
 ```
 
 **TASKS.md P0 through P6 are DONE.** Start at P7.
@@ -38,7 +38,7 @@ tests/                     290 passing tests
 
 ```bash
 pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -q                                  # 290 passed
+PYTHONPATH=. pytest tests/ -q                                  # 316 passed
 PYTHONPATH=. python run_benchmark.py --n 2000 --preset default
 PYTHONPATH=. python main.py                                    # localhost:8000
 ```
@@ -216,7 +216,7 @@ app/controllers/ingest.py    classify, obligation identity, open/close case, dow
 app/services/executor.py     RazorpayExecutor filled in (DRY_RUN default)
 fixtures/webhooks/*.json     9 payloads
 tests/test_webhooks.py       21 tests
-tests/test_downtime.py       18 tests (item 3b)
+tests/test_downtime.py       26 tests (item 3b)
 ```
 
 **No live tunnel.** This box has no `ngrok`/`cloudflared`, no Razorpay
@@ -248,9 +248,12 @@ G9 was a gate wired to a constant `False` on the live path. Two things to know:
   and `engine.decide` returns WAIT for any gate that set one. Nothing goes out on
   that method — not a reminder, not a pay link — until a `.resolved` arrives or
   `window_hours` closes and the case is written off. Nothing expires a row on a
-  timer; `GET /api/ops/attention` makes a stuck one loud instead, and a human is
-  the escape hatch. `POST /api/demo/downtime?method=upi` opens one on camera with a
-  timestamp of now, `&resolve=true` clears it.
+  timer; past `STALE_DOWNTIME_HOURS` (default 6, live-path env knob) the Ops
+  attention row turns **STALLED** and says what it has cost and what the two
+  explanations are. That is a label, not an expiry — the row stays `started` and G9
+  keeps holding, because auto-clearing would be the end-time guess 3b refuses.
+  `POST /api/demo/downtime?method=upi` opens one on camera with a timestamp of now,
+  `&minutes_ago=400` makes it STALLED, `&resolve=true` clears it.
 
 `RazorpayExecutor.execute` never debits a card. `DRY_RUN=true` returns a
 would-do string; with `DRY_RUN=false` it creates payment links but records

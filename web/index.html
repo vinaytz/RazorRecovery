@@ -1075,16 +1075,17 @@ async function loadAttention(){
       + "is down, so G9 blocks retries on it and holds every other case on it too — "
       + "a pay link pointing at a dead rail burns a contact slot to say nothing. Only "
       + "a <code>.resolved</code> webhook clears it; we never guess when an outage "
-      + "ends. A row still open after an implausible number of minutes means the "
-      + "resolve was dropped, and those cases will be written off in a week unless a "
-      + "human makes the call.",
+      + "ends. A row open past "
+      + `<code>STALE_DOWNTIME_HOURS=${a.stale_downtime_hours}</code> turns STALLED — that `
+      + "means the resolve was dropped, and those cases will be written off in a week "
+      + "unless a human makes the call.",
       a.open_downtimes || [], ["Method", "Instrument", "Severity", "Open for", "Ends at", "Blocks"],
-      r=>`<tr class="${(r.open_for_minutes ?? 0) > 180 ? "lost" : ""}">
+      r=>`<tr class="${r.stalled ? "lost" : ""}">
           <td>${say(r.method)}</td><td>${r.instrument || "—"}</td>
-          <td>${say(r.severity || "—")}</td>
+          <td>${r.stalled ? "STALLED" : say(r.severity || "—")}</td>
           <td class="num">${FOR(r.open_for_minutes)}</td>
           <td>${r.ends_at_known ? WHEN(r.ends_at) : "unknown — none was sent"}</td>
-          <td>${r.blocks}</td></tr>`),
+          <td>${r.blocks}${r.note ? `<div class="small">${r.note}</div>` : ""}</td></tr>`),
     block("Stuck on unknown", "an executor call timed out, so we do not know whether "
       + "money moved. Reconcile asks the source of truth.",
       a.unknown_actions, ["Action", "Case", "Type", "Attempts", "Detail"],

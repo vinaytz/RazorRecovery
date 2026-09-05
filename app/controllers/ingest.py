@@ -364,20 +364,32 @@ def _record_downtime(con, payload: dict, event: str, now: datetime) -> dict:
                             if n else
                             f"no open {method} downtime to clear -- nothing changed")}
 
-    fresh = store.record_downtime(
+    outcome = store.record_downtime(
         con, downtime_id=did, method=method,
         instrument=json.dumps(d["instrument"]) if isinstance(d.get("instrument"), dict) else None,
         severity=(d.get("severity") or None), scheduled=bool(d.get("scheduled")),
         began_at=_epoch_iso(d.get("begin")) or now.isoformat(), ends_at=ends_at,
         seen_at=now.isoformat())
-    return {"action": "downtime_recorded" if fresh else "downtime_already_known",
-            "method": method, "downtime_id": did, "severity": d.get("severity"),
-            "ends_at": ends_at,
-            "verdict": (f"{method} is down -- G9 blocks RETRY and defers every open "
-                        f"{method} case "
-                        + ("until " + ends_at if ends_at else
-                           "until Razorpay sends .resolved. no end time was sent and "
-                           "none is guessed"))}
+
+    # The verdict describes what is true after the write, not what the event asked
+    # for. A `.started` for an outage we have already seen resolved changes nothing
+    # and must not claim a block -- that is the exact defect this item was opened to
+    # fix, and it hides one layer down if the reply is written from the payload.
+    if outcome == "already_resolved":
+        verdict = (f"this {method} outage is already marked resolved -- not reopening "
+                   f"it. webhook order is not guaranteed, so a late .started must "
+                   f"never un-resolve one. nothing is being held on {method}")
+    else:
+        held = ("still held" if outcome == "already_open" else "now held")
+        verdict = (f"{method} is down -- G9 blocks RETRY and every open {method} case "
+                   f"is {held} "
+                   + ("until " + ends_at if ends_at else
+                      "until Razorpay sends .resolved. no end time was sent and "
+                      "none is guessed"))
+
+    return {"action": f"downtime_{outcome}", "method": method, "downtime_id": did,
+            "severity": d.get("severity"), "ends_at": ends_at,
+            "blocking": outcome != "already_resolved", "verdict": verdict}
 
 
 def _epoch_iso(ts) -> str | None:

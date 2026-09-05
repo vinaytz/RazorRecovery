@@ -170,7 +170,9 @@ CREATE INDEX IF NOT EXISTS ix_ops_audit_at ON ops_audit(at);
 -- The tempting fix -- age the row out after N hours -- is worse, and is exactly
 -- the end-time guess this table refuses to make: it would have us decide an outage
 -- was over with no evidence and send customers at a dead rail silently. So
--- `ops.attention` makes the stuck row loud for a human instead, and a human is the
+-- `ops.attention` makes the stuck row loud for a human instead: past
+-- `STALE_DOWNTIME_HOURS` it turns STALLED, which changes the row's copy and colour
+-- and NOTHING ELSE -- the row stays `started`, G9 keeps holding. A human is the
 -- escape hatch. `tests/test_downtime.py` pins both halves.
 CREATE TABLE IF NOT EXISTS downtimes (
   id TEXT PRIMARY KEY,              -- Razorpay's downtime id; `.resolved` finds it by this
@@ -463,8 +465,14 @@ def checkout_counts(con) -> dict:
 
 def record_downtime(con, *, downtime_id: str, method: str, instrument: str | None,
                     severity: str | None, scheduled: bool, began_at: str | None,
-                    ends_at: str | None, seen_at: str) -> bool:
-    """A `payment.downtime.started` arrived. Returns False if we already had it.
+                    ends_at: str | None, seen_at: str) -> str:
+    """A `payment.downtime.started` arrived. Returns what actually happened.
+
+    One of:
+      "recorded"          -- new outage, this method is now held
+      "already_open"      -- a re-delivery of one we already have; still held
+      "already_resolved"  -- a `.started` for an outage we have already seen end.
+                             NOT reopened, and nothing is held.
 
     UPSERT keyed on Razorpay's downtime id, so a re-delivered `.started` does not
     create a second outage on the same method -- and, more importantly, does not
@@ -472,9 +480,13 @@ def record_downtime(con, *, downtime_id: str, method: str, instrument: str | Non
     UPDATE clause is `WHERE status = 'started'`: webhook order is not guaranteed,
     and a `.started` redelivered after its `.resolved` must not un-resolve it.
 
-    A row already resolved therefore stays resolved and this returns False, which
-    is the same answer as "we already knew" -- the caller cannot distinguish the
-    two and does not need to.
+    THE THREE-WAY RETURN IS THE POINT, and it replaced a bool whose docstring said
+    "the caller cannot distinguish the two and does not need to". It could not, and
+    it did: `_record_downtime` went on to reply "{method} is down -- G9 blocks
+    RETRY" for the already-resolved case, in which nothing at all is blocked. That
+    is the same defect this whole item was opened to fix -- a verdict claiming a
+    block that is not there -- reintroduced one layer down. A caller that reports on
+    an outcome has to be told the outcome.
 
     Freshness comes from the SELECT rather than `rowcount`, because the UPSERT
     reports a row touched on a re-delivery too: an outage we already knew about
@@ -493,7 +505,9 @@ def record_downtime(con, *, downtime_id: str, method: str, instrument: str | Non
         (downtime_id, method, instrument, severity, int(bool(scheduled)),
          began_at, ends_at, seen_at, seen_at))
     con.commit()
-    return prior is None
+    if prior is None:
+        return "recorded"
+    return "already_open" if prior["status"] == "started" else "already_resolved"
 
 
 def resolve_downtime(con, *, downtime_id: str, method: str, when: str,

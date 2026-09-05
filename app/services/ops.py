@@ -47,6 +47,39 @@ SCOPES = (GLOBAL, MERCHANT, ACTION, RUNG)
 K_DRY_RUN = "dry_run"                 # true | false | null (null = follow env)
 K_QUIET = "quiet_hours"               # {merchant_id: {"start": int, "end": int}}
 
+# How long an unresolved downtime may sit before the attention row changes state.
+# NOT an expiry. See `stale_downtime_hours`.
+DEFAULT_STALE_DOWNTIME_HOURS = 6
+
+
+def stale_downtime_hours() -> float:
+    """`STALE_DOWNTIME_HOURS`. When an open downtime starts shouting. Default 6.
+
+    THIS IS A THRESHOLD, NOT A TIMER. Crossing it changes the colour and the copy
+    of an Ops row and nothing else: the `downtimes` row stays `started`, G9 keeps
+    holding that method, and no case moves. Auto-expiring at N hours is the
+    end-time guess item 3b exists to refuse -- it would have this system decide an
+    outage was over with no evidence and send customers at a dead rail silently.
+
+    The threshold exists because the failure it catches is silent and slow. A
+    dropped `.resolved` holds every case on that method until `window_hours` closes
+    and writes it off, so it surfaces as a rise in write-offs on one method a week
+    later. An attention row only works if somebody is looking, and at hour 1 there
+    is nothing to distinguish "issuer is genuinely down" from "we lost the
+    webhook". By hour 6 there is: real Razorpay outages are minutes to a couple of
+    hours, so six is generous for a real one and early for a lost one.
+
+    Read per call, like `TIME_SCALE` and `ABANDON_MINUTES`, so a demo can set it to
+    0 and show the STALLED row without waiting six hours. Anything unparseable or
+    negative falls back to the default -- a bad value must not silence the alarm.
+    """
+    raw = os.environ.get("STALE_DOWNTIME_HOURS", "")
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return float(DEFAULT_STALE_DOWNTIME_HOURS)
+    return v if v >= 0 else float(DEFAULT_STALE_DOWNTIME_HOURS)
+
 
 def default_merchant() -> str:
     """The merchant this deployment serves.
@@ -418,9 +451,17 @@ def attention(con, now: datetime | None = None) -> dict:
     `open_for_minutes` climbing past anything plausible is the only earlier signal.
     Deciding an outage is over is a human's call, made here, not an inference the
     engine makes quietly.
+
+    Each row is OPEN or STALLED by `STALE_DOWNTIME_HOURS` (default 6, see
+    `stale_downtime_hours`). STALLED is a state change for the row, not a timer:
+    nothing is expired, G9 still holds, no case moves. It is the sentence
+    "this has now gone on long enough that 'genuine outage' and 'we lost the
+    webhook' are the only two things left, and one of them is on us", written
+    where an operator who did not get woken by anything else will see it.
     """
     now = now or datetime.now()
     cfg = load_config()
+    stale_h = stale_downtime_hours()
     since7 = (now - timedelta(days=7)).isoformat()
 
     unknown = [dict(r) for r in con.execute(
@@ -438,7 +479,8 @@ def attention(con, now: datetime | None = None) -> dict:
         "SELECT case_id, obligation_id, customer_id, amount, rung, attempts,"
         " failure_class, opened_at FROM cases WHERE run_id = 'live' AND status = 'OPEN'"
         " AND rung >= ? ORDER BY amount DESC LIMIT 50", (cfg.max_rung - 1,))]
-    downtimes = [_downtime_row(r, now) for r in store.open_downtimes(con)]
+    downtimes = [_downtime_row(r, now, stale_h) for r in store.open_downtimes(con)]
+    stalled = [d for d in downtimes if d["stalled"]]
 
     return {
         "unknown_actions": unknown,
@@ -446,16 +488,19 @@ def attention(con, now: datetime | None = None) -> dict:
         "at_contact_cap": capped,
         "ladder_top": top,
         "open_downtimes": downtimes,
+        "stalled_downtimes": stalled,
+        "stale_downtime_hours": stale_h,
         "max_contacts_7d": cfg.max_contacts_7d,
         "max_rung": cfg.max_rung,
         "counts": {"unknown_actions": len(unknown), "failed_actions": len(failed),
                    "at_contact_cap": len(capped), "ladder_top": len(top),
-                   "open_downtimes": len(downtimes)},
+                   "open_downtimes": len(downtimes),
+                   "stalled_downtimes": len(stalled)},
     }
 
 
-def _downtime_row(r: dict, now: datetime) -> dict:
-    """One unresolved outage, with how long it has been unresolved.
+def _downtime_row(r: dict, now: datetime, stale_after_h: float) -> dict:
+    """One unresolved outage, with how long it has been unresolved and what that means.
 
     `ends_at` is passed through untouched and is usually None. The row says
     "unknown" rather than filling in a number, because the whole point of item 3b
@@ -465,6 +510,16 @@ def _downtime_row(r: dict, now: datetime) -> dict:
     AND sets `wait_until`, and the engine defers a case for any gate that set one.
     So nothing goes out on this method while the row is open -- not a reminder, not
     a pay link.
+
+    `state` is OPEN or STALLED, and STALLED is the one worth waking someone for.
+    Nothing behind it changes: the row is not expired, G9 still holds, no case
+    moves. What changes is that the row now says out loud what it has cost so far
+    and what the two possible explanations are, because "open for 9h" on its own
+    reads like weather rather than like a dropped webhook.
+
+    An unreadable `began_at` yields `open_for_minutes = None` and state OPEN. That
+    is the conservative direction: we do not know how long it has been open, so we
+    do not claim it is stalled.
     """
     began = r.get("began_at") or r.get("seen_at")
     mins = None
@@ -473,7 +528,24 @@ def _downtime_row(r: dict, now: datetime) -> dict:
             mins = max(0, int((now - datetime.fromisoformat(began)).total_seconds() // 60))
     except (TypeError, ValueError):
         mins = None
-    return {**r, "open_for_minutes": mins,
-            "blocks": (f"RETRY on every {r.get('method')} case, and defers the rest"
+
+    method = r.get("method")
+    stalled = mins is not None and mins >= stale_after_h * 60
+    # Same breakdown the Ops column shows. A note reading "held for 7h" beside a
+    # column reading "6h 47m" is two numbers for one fact, and a reader has to stop
+    # and work out whether they disagree.
+    held = f"{mins // 60}h {mins % 60}m" if mins else "0m"
+    return {**r,
+            "open_for_minutes": mins,
+            "state": "STALLED" if stalled else "OPEN",
+            "stalled": stalled,
+            "stale_after_hours": stale_after_h,
+            "blocks": (f"RETRY on every {method} case, and defers the rest"
                        f" of the ladder on it"),
-            "ends_at_known": bool(r.get("ends_at"))}
+            "ends_at_known": bool(r.get("ends_at")),
+            "note": (
+                f"no .resolved received — recovery on {method} has been held for "
+                f"{held}: RETRY is blocked and the rest of the ladder is deferred. "
+                f"Either the outage is genuinely ongoing or we missed the resolve. "
+                f"Clear it by replaying the resolved webhook, not by editing the table."
+            ) if stalled else None}

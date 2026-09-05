@@ -238,9 +238,9 @@ Nothing else changes between benchmark and live.
 Same seed, same numbers, byte for byte. Verified three consecutive runs at
 `md5 68c99ce838b892575a1912db8afb1166`. `tests/test_live_worker.py` pins that
 hash and also checks it a second way, differentially: the benchmark is run with
-`TIME_SCALE` and `ABANDON_MINUTES` at absurd values and again with them absent,
-and the two outputs must be byte-identical. The hash moves only when the decision
-core is deliberately changed — it last moved at item 3a.
+`TIME_SCALE`, `ABANDON_MINUTES` and `STALE_DOWNTIME_HOURS` at absurd values and
+again with them absent, and the two outputs must be byte-identical. The hash moves
+only when the decision core is deliberately changed — it last moved at item 3a.
 
 This was not free. See below: the seeding was wrong for a while, and nothing
 noticed.
@@ -249,10 +249,14 @@ noticed.
 
 ## Bugs found in our own measurements
 
-Three of these four were found by unrelated work colliding with them, not by looking
+Most of these were found by unrelated work colliding with them, not by looking
 for them. That is the reason they are written down instead of quietly fixed: a
 measurement layer that has been wrong once is a measurement layer that can be
 wrong again, and a reader deserves to know which parts of it have already failed.
+
+They share one shape. Every one of them was **a green light attached to
+nothing** — a passing test, a recorded zero, a confident verdict — where the
+thing being reported on was not connected to the thing doing the reporting.
 
 **`--seed` controlled nothing.** Arm seeds were derived from `hash(arm.value)`,
 and Python salts string hashing per process, so every arm silently drew a fresh
@@ -284,11 +288,42 @@ the candidate as `RETRY` when the recorded candidate was `REMIND`, and an EV of
 uplift and the amount all reproduced exactly, which is what made it look checked.
 Found by re-deriving it from `decisions.candidates` rather than re-reading it.
 
+**Gate G9 was wired to a constant `False`, and the handler said it was working.**
+G9 blocks retries during an issuer outage and has existed since P2. But nothing
+on the live path ever populated `method_in_downtime`, so on real traffic the gate
+could never fire — while the webhook branch replied *"downtime recorded — gate G9
+blocks RETRY while it holds"* and wrote no row at all. A false verdict is a claim
+of coverage, which is why this was worse than not handling the event. Fixed in
+item 3b, which is where the `downtimes` table and `tests/test_downtime.py` come
+from.
+
+**And then the test that "proved" the fix asserted on the wrong function.** The
+first draft of 3b claimed a downtime removed RETRY and left the rest of the ladder
+running. `ladder.legal_next_rungs` does skip a gate-blocked rung, so the test was
+green. But G9 also sets `wait_until`, and `engine.decide` returns WAIT for any gate
+that set one — so the whole case is deferred, and `legal_next_rungs` **never sees
+the wait**. The test was asking the one function in the path that structurally
+could not answer the question. Caught by running a live tick and reading a verdict
+that contradicted the docstring that had just been written. The replacement calls
+`decide()`, because the engine is the thing that decides.
+
+**A demo button that lied the second time it was pressed.** `POST
+/api/demo/downtime` reused a fixed id per method, so the second outage on a method
+hit an id already marked resolved. `record_downtime` correctly refused to reopen it
+— a late `.started` must never un-resolve an outage — and the endpoint replied
+*"upi is down — G9 blocks RETRY"* with nothing blocked. Same shape as the bug 3b
+was opened to fix, reintroduced one layer down, because the reply was written from
+the payload instead of from the outcome. Every test had missed it by using a fresh
+database; a demo does not. `record_downtime` now returns which of the three things
+happened, and the verdict is written from that.
+
 **A test that passes for the wrong reason is worse than no test.** No test is an
 admitted gap. A green test is a claim of coverage, and a false one costs you the
-attention you would otherwise have spent looking. Both of the two tests above were
-found by item 3a changing a gate and making them go red for reasons that had
-nothing to do with the gate — which is to say, by luck.
+attention you would otherwise have spent looking. Three of the ones above were
+found by later work making them go red for reasons that had nothing to do with
+what they were testing — which is to say, by luck. The habit that catches them
+without luck is the one in the last two entries: after writing down what the
+system does, go make the system do it and read what actually comes back.
 
 ---
 
