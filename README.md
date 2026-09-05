@@ -28,27 +28,10 @@ So this one has a control group. A random slice of failed payments the engine is
 
 ## The product in one picture
 
-Razorpay webhooks a listening worker
-│ │
-▼ ▼
-┌─ ears ─────────┐ ┌─ brain ──────────────┐
-│ verify HMAC │────────────│ 15 gates, in order │
-│ dedupe │ snapshot │ ladder step │
-│ classify │ │ uplift score │
-└────────────────┘ │ (a pure function) │
-└──────────┬───────────┘
-┌─ mirror ───────┐ │
-│ dashboard │ ▼
-│ replay any │◄──── audit ──┐ ┌─ hands ─────────┐
-│ decision │ └──│ re-check state │
-└────────────────┘ │ send / abort │
-│ record outcome │
-└─────────────────┘
+![Architecture: ears listen, brain decides, hands act, mirror proves](docs/images/architecture.svg)
 
+The brain never touches the outside world — no database, no clock, no LLM. That's what lets any decision replay identically hours later, and it's what makes the audit trail real instead of retrofitted.
 
-**Ears** listen. **Brain** decides. **Hands** act. **Mirror** proves.
-
-The brain is a *pure function* — no database, no clock, no LLM inside. That's what lets any decision replay identically hours later, and it's what makes the audit trail real instead of retrofitted.
 
 ## Run it
 
