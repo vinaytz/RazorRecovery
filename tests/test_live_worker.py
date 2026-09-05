@@ -125,7 +125,15 @@ def test_the_clock_itself_is_never_scaled(con, monkeypatch):
 # allowed to change the decision core -- item 3a (G8 gained the no-mandate check)
 # and item 3c (the bandit gained time decay). If this moves for any other reason,
 # live-path code has leaked into `app/domain/` and the headline number is fiction.
-BENCHMARK_STDOUT_MD5 = "68c99ce838b892575a1912db8afb1166"
+#
+# It is a VERY sensitive instrument, and item 3c measured how sensitive: a decay
+# of 0.999999 -- which discards 0.07% of the evidence, a rounding error -- moves
+# single-seed engine recovery by 4 points. Thompson sampling argmaxes over
+# candidates whose probabilities differ in the 7th decimal, one flip changes an
+# action, and the run diverges from there. So a moved hash means "the arithmetic
+# path changed", NOT "the engine got better or worse". Only the seed sweep can
+# say which, and see README "Bugs found in our own measurements".
+BENCHMARK_STDOUT_MD5 = "4100448ff669f75f01524bb4ccad7542"
 
 
 def _run_benchmark(**env_overrides) -> str:

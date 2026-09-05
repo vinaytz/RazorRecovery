@@ -53,6 +53,7 @@ def load_config(path: str | Path = DEFAULT_PATH, **overrides: Any) -> Config:
         contacts_used=raw["contacts_used"],
         prior_alpha=b["prior_alpha"], prior_beta=b["prior_beta"],
         shrinkage_threshold=b["shrinkage_threshold"],
+        bandit_decay=b["decay"],
         baseline_retry_schedule_hours=tuple(raw["baseline"]["retry_schedule_hours"]),
         payday_window_days=tuple(t["payday_window_days"]),
         insufficient_funds_wait_for_payday=t["insufficient_funds_wait_for_payday"],

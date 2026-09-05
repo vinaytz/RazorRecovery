@@ -63,6 +63,10 @@ bandit:
   prior_alpha: 1.0
   prior_beta: 1.0
   shrinkage_threshold: 30  # below this many observations, blend toward parent segment
+  decay: 0.999             # each cell forgets 0.1% of its own evidence per observation
+                           # OF THAT CELL. Memory ~1000 observations; below that a cell
+                           # is undecayed. 1.0 turns forgetting off entirely.
+                           # Per-cell, not global -- see app/services/bandit.py.
 
 baseline:                  # the fixed-policy opponent
   retry_schedule_hours: [0, 1, 24]

@@ -152,6 +152,7 @@ class Config:
     prior_alpha: float
     prior_beta: float
     shrinkage_threshold: int
+    bandit_decay: float
 
     baseline_retry_schedule_hours: tuple[int, ...]
 

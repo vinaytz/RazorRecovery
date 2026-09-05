@@ -20,7 +20,7 @@ app/domain/timing.py       downtime / payday / mandate-notice / quiet-hours
 app/domain/allocator.py    batch contact-budget knapsack
 app/domain/engine.py       decide() -- the pure core
 app/domain/policies.py     control_decide, baseline_decide
-app/services/bandit.py     Beta posteriors, Thompson, EB shrinkage
+app/services/bandit.py     Beta posteriors, Thompson, EB shrinkage, per-cell decay
 app/services/clock.py      RealClock | VirtualClock
 app/config_loader.py       yaml -> frozen Config
 app/metrics.py             bootstrap CI, Wilson, scoreboard, where-we-lost
@@ -29,7 +29,7 @@ sim/runner.py              four-arm harness on a virtual clock
 run_benchmark.py           the experiment
 main.py                    FastAPI entrypoint
 config/default.yaml        every tunable, already chosen
-tests/                     316 passing tests (290 at P6; batch 3 adds to this)
+tests/                     325 passing tests (290 at P6; batch 3 adds to this)
 ```
 
 **TASKS.md P0 through P6 are DONE.** Start at P7.
@@ -38,14 +38,14 @@ tests/                     316 passing tests (290 at P6; batch 3 adds to this)
 
 ```bash
 pip install -r requirements.txt
-PYTHONPATH=. pytest tests/ -q                                  # 316 passed
+PYTHONPATH=. pytest tests/ -q                                  # 325 passed
 PYTHONPATH=. python run_benchmark.py --n 2000 --preset default
 PYTHONPATH=. python main.py                                    # localhost:8000
 ```
 
 ### The headline number
 
-**Incremental: Rs 850,108 (mean of 5 seeds, range Rs 758k – Rs 966k)**
+**Incremental: Rs 894,825 (mean of 5 seeds, range Rs 809k – Rs 978k)**
 
 Quote this, not a single seed. A judge who reruns with a different seed lands
 inside that range, which is the point of stating it. The single-seed run below is
@@ -57,20 +57,23 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
   arm              recovered     rate   contacts   actions   written off
   CONTROL         Rs 892,622    26.9%          0         0         1,423
   BASELINE      Rs 1,308,719    39.5%      1,570     1,541         1,206
-  ENGINE        Rs 1,858,625    56.1%      3,205     3,205           924
-  ORACLE        Rs 2,159,975    65.2%      3,044     3,523           667
+  ENGINE        Rs 1,870,324    56.4%      3,225     3,225           920
+  ORACLE        Rs 2,163,470    65.3%      3,044     3,523           665
 
   at risk            Rs 3,314,887
   organic (control)  Rs 892,622   <- money that arrived anyway
-  INCREMENTAL        Rs 966,003
-  net of reversals   Rs 943,227
-    case-level CI      [Rs 778,422 .. Rs 1,174,428]   (bootstrap within this run)
-  % of oracle ceiling   76.2%
+  INCREMENTAL        Rs 977,702
+  net of reversals   Rs 958,071
+    case-level CI      [Rs 777,539 .. Rs 1,181,515]   (bootstrap within this run)
+  % of oracle ceiling   76.9%
 
   false chase /10k   engine 0.0   baseline 145.0
-  left alone         1,036 cases  (Rs 1,192,089 deliberately not chased)
-  written off        924 cases  (Rs 1,456,262)
+  left alone         1,034 cases  (Rs 1,147,439 deliberately not chased)
+  written off        920 cases  (Rs 1,444,563)
 ```
+
+`md5 4100448ff669f75f01524bb4ccad7542` over that stdout. Item 3c moved it; before
+that it was `68c99ce838b892575a1912db8afb1166`.
 
 ### Two uncertainty numbers, not one
 
@@ -78,40 +81,55 @@ Expected (seed 42, n=2000). Byte-identical on every run — verified three times
 
 ```
   seed         incremental   % of ceiling
-  42            Rs 966,003          76.2%
-  43            Rs 797,659          69.7%
-  44            Rs 758,480          59.7%
-  45            Rs 924,451          76.2%
-  46            Rs 803,949          70.0%
+  42            Rs 977,702          76.9%
+  43            Rs 808,840          70.8%
+  44            Rs 897,965          70.5%
+  45            Rs 926,890          76.2%
+  46            Rs 862,728          75.2%
 
-  mean incremental      Rs 850,108
-  seed-to-seed range    [Rs 758,480 .. Rs 966,003]   <- across 5 independent runs
-  case-level CI (mean)  [Rs 622,442 .. Rs 1,084,224]   <- bootstrap within one run
-  % of oracle ceiling   70.3%   [59.7% .. 76.2%]
+  mean incremental      Rs 894,825
+  seed-to-seed range    [Rs 808,840 .. Rs 977,702]   <- across 5 independent runs
+  case-level CI (mean)  [Rs 666,789 .. Rs 1,126,746]   <- bootstrap within one run
+  % of oracle ceiling   73.9%   [70.5% .. 76.9%]
 ```
 
 The bootstrap CI resamples cases inside one run, so it only sees case-level
 variance. The seed sweep redraws the world and every action roll. **Quote both.**
-Headline the mean (Rs 850,108), not seed 42's Rs 966,003 — one seed is one draw.
+Headline the mean (Rs 894,825), not seed 42's Rs 977,702 — one seed is one draw.
 
-Note the seed range (Rs 208k wide) came out *narrower* than the case-level CI
-(Rs 462k wide). Five seeds is a small sample for a range and the bootstrap is
+Note the seed range (Rs 169k wide) came out *narrower* than the case-level CI
+(Rs 460k wide). Five seeds is a small sample for a range and the bootstrap is
 genuinely wide at n=2000, so read them as complementary, not one superseding
 the other.
+
+**This is the only uncertainty statement in the project that can carry weight.**
+Item 3c established that a single seed is chaotically unstable — see README, "a
+rounding error moves the numbers as far as the feature does". Perturbing the
+bandit's beta parameters in the seventh decimal moves single-seed engine recovery
+by ~4 points, because Thompson sampling argmaxes over near-tied candidates and one
+flipped comparison diverges the run. So: quote the mean, quote the range, and do
+not attribute any single-seed delta to any code change.
 
 ### Why the numbers moved at item 3a, and which direction is which
 
 Item 3a taught G8 that a case with no mandate holds no instrument, so RETRY there
-cannot reach money. Everything in this section moved as a result, and it did not
-all move the same way:
+cannot reach money.
+
+**Read this table as "which direction", not "by how much".** It reports one seed,
+and item 3c established that a single seed is not a measuring instrument for a
+code change — a one-in-a-million perturbation of the bandit arithmetic moves a
+single-seed number by ~4 points. So the *sign* of each move below is attributable
+(the gate blocks retries, so the engine must shed retry-based money and the oracle
+must shed it too), and the *magnitudes* are not. Treat every percentage here as ±a
+few points, at minimum.
 
 ```
                        before 3a      after 3a
-  BASELINE            Rs 1,539,397   Rs 1,308,719     -15.0%
-  ENGINE              Rs 1,895,364   Rs 1,858,625      -1.9%
-  ORACLE              Rs 2,438,891   Rs 2,159,975     -11.4%
-  INCREMENTAL         Rs 1,002,742     Rs 966,003      -3.7%
-  % of oracle ceiling        64.8%          76.2%    +11.4pt
+  BASELINE            Rs 1,539,397   Rs 1,308,719     down
+  ENGINE              Rs 1,895,364   Rs 1,870,324     down
+  ORACLE              Rs 2,438,891   Rs 2,163,470     down
+  INCREMENTAL         Rs 1,002,742     Rs 977,702     down
+  % of oracle ceiling        64.8%          76.9%     up
 ```
 
 The engine recovers *less money* and captures *more of the ceiling*. Both are
@@ -121,12 +139,19 @@ not touched to make this look better. So the simulator still pays out for a retr
 that the live executor reports back as `INTENT_ONLY: server-initiated debit not
 enabled`. Item 3a stops the engine collecting that fake money.
 
-BASELINE falls hardest because a fixed retry-first policy is precisely what the
-gate takes away. ORACLE falls too — the ceiling itself was partly built on retries
-that cannot happen — and the ratio rises because the denominator got honest faster
-than the numerator did.
+BASELINE should fall hardest: a fixed retry-first policy is precisely what the
+gate takes away. ORACLE should fall too — the ceiling itself was partly built on
+retries that cannot happen — and the ratio should rise because the denominator got
+honest faster than the numerator did. Each of those directions is what the table
+shows. The sizes are not evidence; the seed sweep is the only instrument with a
+resolution, and even it only resolves to the range in "Two uncertainty numbers".
 
-**The number went down and the claim got stronger.** Rs 9,66,003 that could
+Note the earlier version of this section quoted ORACLE falling 11.4% and read it
+as the ceiling getting honest. That magnitude was never attributable and this
+table no longer claims it. See README, "a rounding error moves the numbers as far
+as the feature does".
+
+**The number went down and the claim got stronger.** Rs 9,77,702 that could
 actually be collected beats Rs 10,02,742 that partly could not.
 
 ### What item 3a cost the preset sweep, and what was added to replace it
@@ -147,16 +172,17 @@ multipliers behind `in p` guards; `tests/test_presets.py` pins that).
 fixed schedule's only surviving lever is REMIND — `baseline_decide` sends RETRY
 and REMIND and nothing else — so REMIND is the one thing that can be made to work
 unusually well and have the BASELINE actually feel it. It lifts baseline 37.7% →
-48.7% while our ceiling share falls 80.7% → 73.4%.
+48.7%, the largest baseline move in the table, while our ceiling share falls to
+the lowest of the six.
 
 `link_friendly` (PAY_LINK + METHOD_CHANGE × 2) **does not do the job it was asked
 to do, and the table says so.** The intent was "does the dumb schedule nearly
 catch us when its primary lever works well, on a lever 3a can't neutralise". But
 the baseline never sends PAY_LINK or METHOD_CHANGE at all, so the multiplier
 cannot reach it: the baseline column does not move by one paisa. Only the engine
-gains, and our ceiling share goes **up**, 80.7% → 87.9%. It is therefore a
-labelled best-case showcase, not evidence of fairness, and it is reported as
-exactly that in README.md and in the `sim/world.py` preset comment.
+gains, and our ceiling share goes **up**. It is therefore a labelled best-case
+showcase, not evidence of fairness, and it is reported as exactly that in
+README.md and in the `sim/world.py` preset comment.
 
 If CONTROL ever shows contacts > 0 or actions > 0, stop everything: gate G0 is
 broken and the headline number is fiction.
@@ -165,25 +191,37 @@ broken and the headline number is fiction.
 
 | preset | control | baseline | engine | oracle | incremental | % of ceiling | evidence for |
 |---|---|---|---|---|---|---|---|
-| default | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.7% | the headline |
-| high_organic | 43.7% | 48.2% | 64.2% | 70.0% | Rs 490,133 | 78.2% | **costs us** |
-| remind_friendly | 25.9% | 48.7% | 60.9% | 73.6% | Rs 880,379 | 73.4% | **costs us** |
-| noisy | 25.9% | 37.8% | 55.1% | 67.2% | Rs 734,409 | 70.7% | **costs us** |
-| retry_friendly | 25.9% | 37.7% | 57.0% | 64.5% | Rs 781,894 | 80.6% | *nothing any more* |
-| link_friendly | 25.9% | 37.7% | 70.9% | 77.1% | Rs 1,130,883 | 87.9% | *flatters us* |
+| default | 25.9% | 37.7% | 53.4% | 64.4% | Rs 690,581 | 71.5% | the headline |
+| high_organic | 43.7% | 48.2% | 62.4% | 69.5% | Rs 445,728 | 72.4% | **costs us** |
+| remind_friendly | 25.9% | 48.7% | 58.8% | 73.6% | Rs 826,941 | 69.0% | **costs us** |
+| noisy | 25.9% | 37.8% | 54.8% | 66.9% | Rs 726,782 | 70.5% | *barely any more* |
+| retry_friendly | 25.9% | 37.7% | 53.4% | 64.4% | Rs 690,581 | 71.3% | *nothing any more* |
+| link_friendly | 25.9% | 37.7% | 67.3% | 76.9% | Rs 1,039,460 | 81.1% | *flatters us* |
 
-`high_organic` cuts our edge by a third (Rs 490,133 vs Rs 781,894) and is the only
-world where control alone recovers 43.7% — that one still does its job. `noisy`
-costs us 2 points of engine recovery and 10 points of ceiling share, which is the
-honest answer to "can it still learn when the signal is dirty". `remind_friendly`
-moves the baseline furthest of anything in the table, which is the point of it.
+**Single seed each. Read the columns, not the deltas** — same reason as the 3a
+table above. What this table supports is the ranking and the shape: which world
+has the highest control arm, which one moves the baseline, which one moves only
+us. What it does not support is "preset X costs us N points".
+
+`high_organic` cuts our incremental by a third (Rs 445,728 vs Rs 690,581) and is
+the only world where control alone recovers 43.7% — that one still does its job,
+and it is structural rather than a seed artifact because the preset raises
+`self_pay` directly. `remind_friendly` moves the baseline furthest of anything in
+the table, by 11 points, which is the point of it and is large enough to survive
+the noise.
+
+`noisy` has **almost stopped costing us.** It used to take 2 points of engine
+recovery and 10 of ceiling share; it now shows engine recovery slightly higher
+than `default` and ceiling share one point lower, and one point is inside the
+single-seed noise. The honest reading is that it no longer discriminates at n=1500
+seed 42 — not that noise has become free.
 
 `retry_friendly` now reads identically to `default` on the first three columns.
 See "What item 3a cost the preset sweep" above: that is a consequence of the
 no-mandate gate, not a copy-paste error, and it means this preset has stopped
 being evidence. **Report all six anyway. Do not tune them away** — including the
-one that no longer discriminates and the one that flatters us, because hiding
-either would be the actual dishonesty.
+two that no longer discriminate and the one that flatters us, because hiding any
+of them would be the actual dishonesty.
 
 ## The dashboard (already working)
 
@@ -198,7 +236,7 @@ either would be the actual dishonesty.
 - **Live ops** — the four chaos buttons, each returning a verdict line
 
 Verified end to end: replay on a sleeping-dog case returns
-`REMIND uplift -0.037, EV -Rs 161 -> WAIT`, and matches.
+`REMIND uplift -0.0293, EV -Rs 200.64 -> WAIT`, and matches.
 
 ## What YOU build
 
@@ -298,6 +336,17 @@ Mirror `sim/runner.py::snapshot_of` — same fields, sourced from repos instead 
   raw probability and the entire thesis dies while everything still appears to run.
 - **The chaos endpoints seed their own throwaway obligations** in the sqlite db.
   They are self-contained and safe to press repeatedly on camera.
+- **`n` in the posterior table can go DOWN.** Item 3c added `bandit.decay` (0.999),
+  and `count()`/`table()` report decayed evidence rather than arrivals. A cell that
+  has seen 5000 observations reports ~1000, because that is how much of it is still
+  load-bearing. Reporting arrivals would hide exactly the failure that got global
+  decay rejected — see the `app/services/bandit.py` module docstring, which has the
+  measurement. **Forgetting is per-cell: a cell ages only when written.** Never
+  "fix" it into global decay; `tests/test_bandit.py::test_the_counterfactual_survives_a_full_engine_arm`
+  is there to stop you, because global decay eats the CONTROL arm's NONE burst and
+  leaves uplift measured against 53 observations out of 2000. `bandit.decay: 1.0`
+  turns it off and exactly recovers the pre-3c arithmetic.
+
 - **Replay uses `FrozenPosterior`,** built from the probabilities stored on the
   decision itself. Replay must answer "would we decide the same given what we
   knew AND what the model believed then" — using today's posterior would be a
@@ -307,3 +356,45 @@ Mirror `sim/runner.py::snapshot_of` — same fields, sourced from repos instead 
   state, which is where their false-chase rate comes from. Flip it to `True` and
   that gap closes while our gate and uplift advantages remain. Mention this in
   the README — volunteering it is worth more than hiding it.
+
+## OPEN, MEASURED, NOT FIXED: the four arms are not independent
+
+Found during item 3c. **This is a live known defect, not a modelled choice.** It
+is written here rather than fixed because fixing it moves the headline number
+downward and that is a call for a human, not for the item that happened to find it.
+
+`sim/runner.py:322` does `tr.self_pay_at = None` — the sleeping-dog effect, where
+contacting a customer who would have paid on their own kills that self-payment. It
+mutates the **shared** `World`. `run_once` builds one world and passes it to all
+four arms in sequence, so BASELINE's kills are still gone when ENGINE runs, and
+BASELINE's *and* ENGINE's are gone when ORACLE runs. The arms are not four
+independent draws on the same world; they are a chain.
+
+Measured at n=2000 seed 42, giving each arm its own freshly-generated world:
+
+```
+  arm          shared world (shipped)   own world       delta
+  CONTROL              Rs   892,622    Rs   892,622          0   (never acts)
+  BASELINE             Rs 1,308,719    Rs 1,308,719          0   (runs first)
+  ENGINE               Rs 1,870,324    Rs 1,846,673   -Rs 23,651
+  ORACLE               Rs 2,163,470    Rs 2,164,541    +Rs 1,070
+  INCREMENTAL          Rs   977,702    Rs   954,052   -Rs 23,650
+  % of oracle ceiling         76.9%           75.0%      -1.9pt
+```
+
+CONTROL and BASELINE are unchanged because CONTROL never acts and BASELINE runs
+first — nothing has mutated the world before them. Only the arms downstream in the
+chain move, which is the signature of the bug rather than of noise.
+
+**The direction is the finding; the size is not.** BASELINE kills exactly 2
+self-payers, and 2 customers is worth about Rs 3.3k at the mean case size — so most
+of the Rs 23.6k is the same chaotic divergence documented in the README, not the
+direct value of two customers. What is attributable: the contamination is real, it
+flows downstream only, and it flows in the flattering direction. What is not: the
+claim that fixing it costs exactly Rs 23,650. That would need the seed sweep.
+
+The fix is one line (build or deep-copy the world per arm) and it would move the
+benchmark md5 a second time and require every table in README.md and HANDOFF.md to
+be regenerated again. **Do not do it silently.** Either fix it and regenerate
+everything, or leave it and keep this section — but the one thing that must not
+happen is the number being quoted as 76.9% with nobody knowing why it isn't 75.0%.
