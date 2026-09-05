@@ -8,7 +8,7 @@
   :root{
     --ink:#16181d; --muted:#6b7079; --line:#e3e5e9; --bg:#fbfbfc; --card:#fff;
     --control:#8a8f98; --baseline:#b8bcc4; --engine:#1a6b4f; --oracle:#cfd3d9;
-    --warn:#a8531c;
+    --warn:#a8531c; --stop:#8f2c25; --stopbg:#fbeceb; --stopline:#eccfcb;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
@@ -61,6 +61,33 @@
     overflow:auto;font-size:12.5px;margin:12px 0 0;max-height:340px}
   .empty{color:var(--muted);padding:34px 0}
   .lost td{color:var(--warn)}
+  .who{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:6px;
+    background:#fff;width:120px}
+  /* The one loud control on the page. Specificity has to beat `button.act`, which
+     paints every other button white -- otherwise this is white text on white. */
+  button.act.stop{background:var(--stop);border-color:var(--stop);color:#fff}
+  button.act.stop:hover{background:#7d251f;border-color:#7d251f}
+  .banner{display:none;align-items:center;justify-content:space-between;gap:18px;
+    background:var(--stopbg);border:1px solid var(--stopline);color:var(--stop);
+    padding:12px 16px;border-radius:8px;margin:22px 0 0;font-size:14px}
+  .banner b{font-weight:600}
+  .banner button{background:#fff;border:1px solid var(--stop);color:var(--stop)}
+  .banner button:hover{background:var(--stopbg)}
+  .subt{color:var(--muted);font-size:13px;margin-top:-6px}
+  .small{color:var(--muted);font-size:13px}
+  /* The confirm panel only appears when the operator says "go live". It shows
+     what that changes, and it cannot be dismissed by anything but a fresh choice
+     -- the server rejects the transition without confirmation either way. */
+  .confirm{background:var(--stopbg);border:1px solid var(--stopline);
+    border-radius:8px;padding:14px 18px;margin-top:14px}
+  .confirm .row{margin-bottom:0}
+  .confirm button{margin-top:12px}
+  .opsnote{margin-top:8px;font-size:13px;color:var(--muted)}
+  .opsnote.err{color:var(--stop)}
+  .opsnote.ok{color:var(--engine)}
+  /* Five numbers, one row. A sixth empty slot in a bordered grid reads as a cell
+     that failed to load. */
+  #ops_today{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
 </style>
 </head>
 <body><div class="wrap">
@@ -74,11 +101,19 @@
 </header>
 
 <nav>
-  <button class="on" onclick="tab(0,this)">Scoreboard</button>
-  <button onclick="tab(1,this)">Cases</button>
-  <button onclick="tab(2,this)">Decision</button>
-  <button onclick="tab(3,this)">Live ops</button>
+  <button class="on" onclick="tab('s0',this)">Scoreboard</button>
+  <button onclick="tab('s1',this)">Cases</button>
+  <button onclick="tab('s2',this)">Decision</button>
+  <button onclick="tab('s3',this)">Live ops</button>
+  <button onclick="tab('s5',this)">Ops</button>
 </nav>
+
+<div class="banner" id="pausebar">
+  <div><b>Recovery is paused.</b> <span id="pausebar_reason"></span>
+    Deciding and executing are stopped; webhooks, settlement matching and the
+    abandonment sweep still run, so the ledger keeps up with the world.</div>
+  <button class="act" onclick="opsBigButton()">Resume all recovery</button>
+</div>
 
 <section class="on" id="s0">
   <div class="hero">
@@ -172,16 +207,145 @@
   </div>
 </section>
 
+<section id="s5">
+  <!-- The stop button is first, largest, and the only red thing on the page.
+       Everything else on this tab is there to make an operator confident enough
+       to press it: what it stops, what it keeps doing, and what it costs. -->
+  <div class="panel" id="stoppanel">
+    <h3 id="stoptitle">Stop recovery</h3>
+    <div class="lede" id="stoplede">
+      Freezes deciding and executing, and cancels everything already queued.
+      Webhooks, settlement matching and the abandonment sweep <b>keep running</b> —
+      a paused engine that stops listening comes back to a ledger that drifted
+      while it was off.</div>
+    <div class="row" style="margin-top:18px;align-items:center">
+      <button class="act stop" id="stopbtn" onclick="opsBigButton()">Pause all recovery</button>
+      <input class="who" id="ops_who" value="operator" title="recorded on every change">
+      <input class="who" id="ops_reason" style="width:260px" placeholder="reason (optional)">
+    </div>
+    <div class="opsnote" id="stopnote"></div>
+
+    <div style="margin-top:26px">
+      <div class="small">Or stop something narrower. A scoped pause leaves the rest
+        of the ladder moving.</div>
+      <div class="row" style="margin-top:10px;align-items:center">
+        <select id="ops_scope" onchange="opsScopeChanged()">
+          <option value="merchant">This merchant</option>
+          <option value="action">One action type</option>
+          <option value="rung">This rung and above</option>
+        </select>
+        <select id="ops_action">
+          <option>RETRY</option><option>REMIND</option><option>PAY_LINK</option>
+          <option>METHOD_CHANGE</option><option>HUMAN</option><option>WRITE_OFF</option>
+        </select>
+        <select id="ops_rung">
+          <option value="1">1 — retry and above</option>
+          <option value="2">2 — remind and above</option>
+          <option value="3">3 — pay link and above</option>
+          <option value="4">4 — method change and above</option>
+          <option value="5">5 — human and above</option>
+          <option value="6">6 — write-off only</option>
+        </select>
+        <button class="act" onclick="opsPauseScoped()">Pause that</button>
+      </div>
+    </div>
+
+    <table id="ops_pauses" style="display:none"><thead><tr>
+      <th>Scope</th><th>Reason</th><th>Raised by</th><th>At</th>
+      <th class="num">Cancelled</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h3>Mode</h3>
+    <div class="lede" id="mode_lede">—</div>
+    <div class="row" style="margin-top:16px">
+      <button class="act" id="mode_dry" onclick="opsMode(true)">Dry run</button>
+      <button class="act" id="mode_live" onclick="opsAskLive()">Go live</button>
+      <button class="act" onclick="opsMode(null)">Follow the environment</button>
+    </div>
+    <div class="confirm" id="mode_confirm" style="display:none">
+      <div id="mode_confirm_body"></div>
+      <div class="row">
+        <button class="act stop" onclick="opsMode(false)">Yes, go live</button>
+        <button class="act" onclick="$('#mode_confirm').style.display='none'">Cancel</button>
+      </div>
+    </div>
+    <div class="opsnote" id="mode_note"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Today</h3>
+    <div class="lede">Since local midnight. Money recovered is shown next to what
+      the actions cost, because a recovery number with no cost beside it is a
+      number nobody can act on.</div>
+    <div class="grid" id="ops_today"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Needs a human</h3>
+    <div class="lede">Nothing on this list resolves itself. An empty list here is
+      the normal state, not a missing feature.</div>
+    <div class="row" style="margin-top:16px">
+      <button class="act" onclick="opsReconcile()">Reconcile the unknowns</button>
+    </div>
+    <div class="opsnote" id="rec_note"></div>
+    <div id="ops_attention"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Quiet hours</h3>
+    <div class="lede">The window in which this merchant may not contact anybody.
+      A 24/7 gaming merchant and a B2B invoicing merchant do not have the same one.
+      Changing it here does not weaken the gate and does not edit
+      <code>config/default.yaml</code> — it builds a config for this merchant, which
+      is why the effective config version changes when you save.</div>
+    <div class="row" style="margin-top:16px;align-items:center">
+      <span class="small">No contact between</span>
+      <select id="q_start"></select>
+      <span class="small">and</span>
+      <select id="q_end"></select>
+      <button class="act" onclick="opsQuiet()">Save</button>
+      <button class="act" onclick="opsQuietReset()">Back to the file default</button>
+    </div>
+    <div class="opsnote" id="q_note"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Configuration</h3>
+    <div class="kv" id="ops_config"></div>
+    <div class="lede" style="margin-top:18px">A version string says the settings
+      changed. The table says what they were.</div>
+    <table id="ops_audit"><thead><tr>
+      <th>When</th><th>Who</th><th>What</th><th>Before</th><th>After</th>
+      </tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
 </div>
 <script>
 const R = p => "₹" + Math.round((p||0)/100).toLocaleString("en-IN");
 const $ = s => document.querySelector(s);
 let BOARD = null, chart = null;
 
-function tab(i, el){
+// Tabs are addressable: /#ops opens the Ops tab directly. A filmed demo needs to
+// land on a tab, not click its way to one, and a screenshot needs a URL.
+const TABS = {scoreboard:"s0", cases:"s1", decision:"s2", live:"s3", ops:"s5"};
+const TABNAME = Object.fromEntries(Object.entries(TABS).map(([k,v])=>[v,k]));
+
+function tab(id, el){
   document.querySelectorAll("nav button").forEach(b=>b.classList.remove("on"));
   el.classList.add("on");
-  document.querySelectorAll("section").forEach((s,j)=>s.classList.toggle("on", j===i));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on", s.id===id));
+  history.replaceState(null, "", "#" + (TABNAME[id] || ""));
+  if(id==="s5") loadOps();
+}
+
+function openHash(){
+  const id = TABS[(location.hash || "").replace("#","")];
+  if(!id) return;
+  const btn = [...document.querySelectorAll("nav button")]
+    .find(b => (b.getAttribute("onclick")||"").includes("'" + id + "'"));
+  if(btn) btn.click();
 }
 const runId = () => $("#run").value || "default";
 
@@ -460,9 +624,288 @@ async function chaos(kind){
   loadMatches();
 }
 
+// ---------------------------------------------------------------- Ops --
+// One GET drives the banner and the whole tab. The banner is rendered on every
+// poll no matter which tab is showing: "is recovery running right now" is not a
+// question anybody should have to change tabs to answer.
+let OPS = null, QDIRTY = false;
+const WHO = () => ($("#ops_who").value || "operator").trim();
+const HH = h => String(h).padStart(2, "0") + ":00";
+const WHEN = s => s ? s.replace("T", " ").slice(0, 19) : "—";
+const Q = o => new URLSearchParams(
+  Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== "")).toString();
+
+const SCOPE_LABEL = p => p.scope === "global" ? "Everything"
+  : p.scope === "merchant" ? "Merchant " + p.value
+  : p.scope === "action" ? "Action " + p.value
+  : "Rung " + p.value + " and above";
+
+async function opsPoll(){
+  const r = await fetch("/api/ops/state");
+  if(!r.ok) return;
+  OPS = await r.json();
+  renderBanner();
+  if($("#s5").classList.contains("on")){ renderOps(); loadAttention(); }
+}
+async function loadOps(){ await opsPoll(); }
+
+function renderBanner(){
+  const bar = $("#pausebar");
+  bar.style.display = OPS.paused ? "flex" : "none";
+  if(OPS.paused){
+    const p = OPS.pauses[0] || {};
+    $("#pausebar_reason").textContent =
+      SCOPE_LABEL(p) + (p.reason ? ` · “${p.reason}”` : "") +
+      (p.who ? ` · ${p.who}, ${WHEN(p.created_at)}.` : ".");
+  }
+}
+
+function renderOps(){
+  const paused = OPS.paused, glob = OPS.paused_global;
+
+  // The button says what pressing it does now, not what state we are in. An
+  // operator reading "Paused" has to work out whether that is a label or a verb.
+  $("#stopbtn").textContent = paused ? "Resume all recovery" : "Pause all recovery";
+  $("#stopbtn").classList.toggle("stop", !paused);
+  $("#stoptitle").textContent = paused ? "Recovery is stopped" : "Stop recovery";
+  if(paused){
+    $("#stoplede").innerHTML = `Deciding and executing are frozen${
+      glob ? "" : " inside the scopes below"}. Webhooks, settlement matching and the
+      abandonment sweep are <b>still running</b>, so the ledger keeps up with the
+      world while the engine is off. Resuming does not replay what was cancelled:
+      the ladder never descends, so a pause costs whatever it killed.`;
+  }
+
+  const rows = OPS.pauses || [];
+  $("#ops_pauses").style.display = rows.length ? "table" : "none";
+  $("#ops_pauses tbody").innerHTML = rows.map(p=>`<tr>
+    <td>${SCOPE_LABEL(p)}</td><td>${p.reason || "—"}</td><td>${p.who || "—"}</td>
+    <td>${WHEN(p.created_at)}</td>
+    <td class="num">${p.cancelled} action${p.cancelled===1?"":"s"}</td>
+    <td class="num"><button class="act" onclick="opsResume(${p.id})">Lift</button></td>
+    </tr>`).join("");
+
+  // Mode. `will_actually_send` is the honest half: with no SMTP host, going live
+  // changes the label and nothing else, and saying so is the difference between
+  // a control and a light.
+  const m = OPS.mode, lr = OPS.live_readiness;
+  $("#mode_lede").innerHTML = `Currently <b>${m.dry_run ? "dry run" : "live"}</b>,
+    set by ${m.source === "env" ? "the environment (<code>DRY_RUN</code>)"
+                                : "an operator, overriding the environment"}.
+    ${m.dry_run
+      ? "Actions are decided, scheduled and recorded; nothing leaves the process."
+      : "Actions can reach real customers."}
+    <br><span class="small">Right now: ${lr.summary}${
+      lr.gaps.length ? " — " + lr.gaps.join("; ") : ""}.</span>`;
+  $("#mode_dry").disabled = m.dry_run && m.source === "operator";
+  $("#mode_live").disabled = !m.dry_run;
+
+  // Today.
+  const t = OPS.today;
+  $("#ops_today").innerHTML = [
+    ["Decisions made", t.decisions.toLocaleString(),
+     `on ${t.cases_decided} case${t.cases_decided===1?"":"s"} — a waiting case is
+      re-asked every tick` + (t.actions_cancelled
+        ? `, and ${t.actions_cancelled} action(s) were cancelled by a pause` : "")],
+    ["Actions executed", t.actions_executed.toLocaleString(),
+     Object.entries(t.actions_by_type).map(([k,v])=>`${v} ${k.toLowerCase()}`).join(", ")
+       || "nothing has come due yet"],
+    ["Customers contacted", t.contacts.toLocaleString(),
+     t.contacts_failed ? t.contacts_failed + " send(s) failed — no cap was burnt"
+                       : "counted against the 7-day cap"],
+    ["Recovered", R(t.recovered),
+     R(t.recovered_attributed) + " followed a contact of ours"],
+    ["Spent on actions", R(t.budget_used),
+     "from config action_cost, at " + t.contact_budget_per_tick + " contacts/tick"],
+  ].map(([k,v,n])=>`<div class="cell"><div class="k">${k}</div>
+      <div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+  // Quiet hours. Only written while the operator is not mid-edit.
+  if(!$("#q_start").options.length){
+    const opts = [...Array(24).keys()].map(h=>`<option value="${h}">${HH(h)}</option>`).join("");
+    $("#q_start").innerHTML = opts; $("#q_end").innerHTML = opts;
+    $("#q_start").onchange = $("#q_end").onchange = ()=>{ QDIRTY = true; };
+  }
+  if(!QDIRTY){
+    $("#q_start").value = OPS.quiet_hours.start;
+    $("#q_end").value = OPS.quiet_hours.end;
+  }
+  const q = OPS.quiet_hours;
+  $("#q_note").className = "opsnote";
+  $("#q_note").innerHTML = q.source === "operator"
+    ? `In force: no contact ${HH(q.start)}–${HH(q.end)}, set here for
+       <b>${q.merchant_id}</b>. G12 blocks anything scheduled inside it.`
+    : `In force: no contact ${HH(q.start)}–${HH(q.end)}, from
+       <code>config/default.yaml</code>. Nothing has been overridden for
+       <b>${q.merchant_id}</b>.`;
+
+  const c = OPS.config, last = (OPS.audit || [])[0];
+  $("#ops_config").innerHTML = [
+    ["Merchant", OPS.merchant_id + " · one per process, from MERCHANT_ID"],
+    ["Config file", c.path],
+    ["Version on file", c.base_version],
+    ["Version in force", c.effective_version + (c.effective_version === c.base_version
+      ? " · nothing overridden" : " · rebuilt from an operator override")],
+    ["Last change", last ? `${last.key} by ${last.who}, ${WHEN(last.at)}` : "none yet"],
+    ["Contact cap", c.max_contacts_7d + " per customer per 7 days"],
+    ["Ladder top", "rung " + c.max_rung],
+    ["Recovery window", c.window_hours + " hours"],
+    ["Retry cap", c.max_attempts + " attempts"],
+  ].map(([k,v])=>`<div>${k}</div><div>${v}</div>`).join("");
+
+  const a = OPS.audit || [];
+  $("#ops_audit tbody").innerHTML = a.length
+    ? a.map(x=>`<tr><td>${WHEN(x.at)}</td><td>${x.who || "—"}</td>
+        <td>${x.key}${x.note ? `<div class="small">${x.note}</div>` : ""}</td>
+        <td>${fmtVal(x.before)}</td><td>${fmtVal(x.after)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">Nothing has been changed yet. Every pause,
+       mode flip and quiet-hours edit lands here with what it was before.</td></tr>`;
+}
+
+// The audit table has to be readable at a glance, so an object is rendered as
+// "scope: global, cancelled: 14" rather than as JSON. Nothing is dropped.
+const fmtVal = v => v === null || v === undefined ? "—"
+  : typeof v !== "object" ? String(v)
+  : Object.entries(v).map(([k, x]) => `${k}: ${
+      x === null ? "—" : typeof x === "object"
+        ? Object.entries(x).map(([a,b])=>`${a} ${b}`).join(", ") : x}`).join(" · ");
+
+async function loadAttention(){
+  const res = await fetch("/api/ops/attention");
+  if(!res.ok) return;
+  const a = await res.json();
+  const block = (title, note, rows, cols, cells) => rows.length
+    ? `<div style="margin-top:22px"><b>${title}</b> <span class="small">— ${note}</span>
+       <table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+       <tbody>${rows.map(cells).join("")}</tbody></table></div>`
+    : "";
+  const html = [
+    block("Stuck on UNKNOWN", "an executor call timed out, so we do not know whether "
+      + "money moved. Reconcile asks the source of truth.",
+      a.unknown_actions, ["Action", "Case", "Type", "Attempts", "Detail"],
+      r=>`<tr><td>${r.action_id.slice(0,14)}</td><td>${r.case_id.replace(/^live_/,"")}</td>
+          <td>${r.type}</td><td class="num">${r.attempts}</td>
+          <td>${r.detail || "—"}</td></tr>`),
+    block("Failed, and nobody was told", "the action ran and did not work. The rung "
+      + "was spent either way, so these are cases the ladder has moved past silently.",
+      a.failed_actions, ["Action", "Case", "Type", "Detail"],
+      r=>`<tr class="lost"><td>${r.action_id.slice(0,14)}</td>
+          <td>${r.case_id.replace(/^live_/,"")}</td><td>${r.type}</td>
+          <td>${r.detail || "—"}</td></tr>`),
+    block("At the contact cap", `${a.max_contacts_7d} contacts in 7 days. The engine `
+      + "will not write to them again; a human can still call.",
+      a.at_contact_cap, ["Customer", "Contacts, 7 days", "Last contact"],
+      r=>`<tr><td>${r.customer_id}</td><td class="num">${r.contacts_7d}</td>
+          <td>${WHEN(r.last_contact)}</td></tr>`),
+    block("At the top of the ladder", "every rung has been climbed. The next move is "
+      + "a write-off or a human, and neither should happen without one.",
+      a.ladder_top, ["Case", "Failure", "Amount", "Rung", "Opened"],
+      r=>`<tr onclick="openCase('${r.case_id}')"><td>${r.case_id.replace(/^live_/,"")}</td>
+          <td>${r.failure_class}</td><td class="num">${R(r.amount)}</td>
+          <td class="num">${r.rung}</td><td>${WHEN(r.opened_at)}</td></tr>`),
+  ].join("");
+  $("#ops_attention").innerHTML = html ||
+    `<div class="empty">Nothing needs a human. Actions that time out land here as
+     UNKNOWN, and customers who have had ${a.max_contacts_7d} contacts in a week
+     land here before the engine goes quiet on them.</div>`;
+}
+
+async function opsPost(path, params, noteEl){
+  const res = await fetch(path + (params ? "?" + Q(params) : ""), {method:"POST"});
+  const body = await res.json().catch(()=>({}));
+  if(noteEl){
+    const d = body.detail ?? body;
+    $(noteEl).className = "opsnote " + (res.ok ? "ok" : "err");
+    $(noteEl).textContent = res.ok ? (d.note || d.summary || "done")
+      : (typeof d === "string" ? d : d.error || JSON.stringify(d));
+  }
+  await opsPoll();
+  return {ok: res.ok, body};
+}
+
+function opsBigButton(){
+  if(OPS && OPS.paused) return opsResume(null);
+  return opsPause("global", null);
+}
+
+async function opsPause(scope, value){
+  const r = await opsPost("/api/ops/pause",
+    {scope, value, reason: $("#ops_reason").value, who: WHO()}, "#stopnote");
+  if(r.ok && !r.body.already)
+    $("#stopnote").textContent =
+      `Paused. ${r.body.cancelled} queued action(s) cancelled. ${r.body.note}.`;
+}
+const opsResume = id => opsPost("/api/ops/resume", {pause_id: id, who: WHO()}, "#stopnote");
+
+function opsScopeChanged(){
+  const s = $("#ops_scope").value;
+  $("#ops_action").style.display = s === "action" ? "" : "none";
+  $("#ops_rung").style.display = s === "rung" ? "" : "none";
+}
+
+function opsPauseScoped(){
+  const s = $("#ops_scope").value;
+  opsPause(s, s === "action" ? $("#ops_action").value
+            : s === "rung" ? $("#ops_rung").value
+            : OPS.merchant_id);
+}
+
+// Going live is refused by the server without confirm=true. This panel exists to
+// show what the confirmation is FOR -- the refusal body carries the facts.
+async function opsAskLive(){
+  const res = await fetch("/api/ops/mode?dry_run=false", {method:"POST"});
+  const b = (await res.json()).detail || {};
+  const lr = b.what_this_changes || OPS.live_readiness;
+  $("#mode_confirm_body").innerHTML = `<b>Going live.</b> Actions will be executed
+    for real instead of recorded and dropped.<br>
+    <span class="small">${lr.summary}${
+      lr.gaps.length ? ".<br>" + lr.gaps.map(g=>"· " + g).join("<br>") : "."}</span>`;
+  $("#mode_confirm").style.display = "block";
+}
+
+async function opsMode(dry){
+  $("#mode_confirm").style.display = "none";
+  const p = dry === null ? {clear: true, who: WHO()}
+          : {dry_run: dry, confirm: dry === false, who: WHO()};
+  const r = await opsPost("/api/ops/mode", p, "#mode_note");
+  if(r.ok) $("#mode_note").textContent =
+    `Now ${r.body.dry_run ? "dry run" : "LIVE"}, source: ${r.body.source}.`
+    + (r.body.dry_run ? "" : " " + OPS.live_readiness.summary + ".");
+}
+
+async function opsReconcile(){
+  $("#rec_note").className = "opsnote";
+  $("#rec_note").textContent = "asking the source of truth…";
+  const r = await opsPost("/api/ops/reconcile", null, null);
+  $("#rec_note").className = "opsnote ok";
+  $("#rec_note").textContent = `Checked ${r.body.checked}, resolved ${r.body.resolved},`
+    + ` ${r.body.remaining_unknown} still unknown.`;
+  loadAttention();
+}
+
+async function opsQuiet(){
+  const r = await opsPost("/api/ops/quiet_hours",
+    {start: $("#q_start").value, end: $("#q_end").value, who: WHO()}, null);
+  QDIRTY = false;
+  await opsPoll();
+  if(r.ok) $("#q_note").innerHTML +=
+    `<br>Saved. Decisions now run under config <b>${r.body.config_version}</b>.`;
+}
+
+async function opsQuietReset(){
+  await opsPost("/api/ops/quiet_hours/reset", {who: WHO()}, null);
+  QDIRTY = false;
+  opsPoll();
+}
+
 // Only while the Live ops tab is showing. Polling a hidden tab every second is a
 // query the judge cannot see the result of.
 setInterval(()=>{ if($("#s3").classList.contains("on")) loadLive(); }, 1000);
+// The ops poll is the exception: the pause banner has to be right on every tab.
+setInterval(opsPoll, 2000);
+opsScopeChanged();
+opsPoll();
 boot();
+openHash();
 </script>
 </body></html>

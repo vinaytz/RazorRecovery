@@ -111,6 +111,32 @@ CREATE TABLE IF NOT EXISTS checkouts (
   contact TEXT, email TEXT, name TEXT, receipt TEXT,
   status TEXT, created_at TEXT, seen_at TEXT, resolved_at TEXT, detail TEXT);
 CREATE INDEX IF NOT EXISTS ix_checkouts_watch ON checkouts(status, created_at);
+
+-- OPERATOR STATE. Read on the live path only; the benchmark never opens this db,
+-- so nothing here can move a benchmark number.
+--
+-- A pause is a ROW, not a flag, and lifting one is an UPDATE rather than a DELETE.
+-- That is deliberate: "recovery was stopped between 14:02 and 14:19, by whom, and
+-- why" is the first question after an incident, and a boolean cannot answer it.
+CREATE TABLE IF NOT EXISTS pauses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope TEXT NOT NULL,              -- global | merchant | action | rung
+  value TEXT,                       -- NULL for global; merchant id / ACTION / rung
+  reason TEXT, who TEXT,
+  created_at TEXT, lifted_at TEXT, lifted_by TEXT,
+  cancelled INTEGER DEFAULT 0);     -- pending actions killed when it was raised
+CREATE INDEX IF NOT EXISTS ix_pauses_live ON pauses(lifted_at);
+
+-- Current operator settings. One row per key, value is JSON.
+CREATE TABLE IF NOT EXISTS ops_settings (
+  key TEXT PRIMARY KEY, value TEXT NOT NULL, changed_by TEXT, changed_at TEXT);
+
+-- Every change with what it replaced. This is the Ops tab's "diff vs previous":
+-- a config version alone tells you the settings changed, not what they were.
+CREATE TABLE IF NOT EXISTS ops_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, who TEXT,
+  key TEXT NOT NULL, before TEXT, after TEXT, note TEXT);
+CREATE INDEX IF NOT EXISTS ix_ops_audit_at ON ops_audit(at);
 """
 
 # Columns added after the first release. sqlite has no "ADD COLUMN IF NOT EXISTS",

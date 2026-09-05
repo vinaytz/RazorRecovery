@@ -47,6 +47,7 @@ from app.domain.engine import decide
 from app.domain.models import (Arm, CaseSnapshot, Decision, FailureClass,
                                ObligationKind, ActionType)
 from app.repos import store
+from app.services import ops
 from app.services.bandit import Posterior
 
 log = logging.getLogger("razorrecovery.live")
@@ -96,6 +97,10 @@ class LiveWorker:
 
         self.con = con
         self.executor = executor
+        # An explicitly passed config wins and is never overlaid -- a caller that
+        # named a config means it. Only the default path picks up the merchant's
+        # operator settings.
+        self.cfg_pinned = cfg is not None
         self.cfg = cfg or load_config()
         self.posterior = posterior if posterior is not None else Posterior(self.cfg)
         # Seeded. Thompson sampling draws from this, and an unseeded live worker
@@ -103,19 +108,54 @@ class LiveWorker:
         # judge could see. Invariant 7 applies here too.
         self.rng = rng if rng is not None else np.random.default_rng(1729)
 
+    def config_for(self, merchant_id: str):
+        """The config this merchant's decisions are made under.
+
+        `app/domain/` does not change: G12 still reads `cfg.quiet_start` and
+        `cfg.quiet_end` off whatever it is handed. All that moved is which config
+        that is.
+        """
+        if self.cfg_pinned:
+            return self.cfg
+        return ops.config_for(self.con, merchant_id)
+
     # -- the pass ---------------------------------------------------------
 
     def tick(self, now: datetime | None = None, limit: int = 50) -> dict:
         now = now or datetime.now()
         scale = time_scale()
-        decided = [self.decide_case(row, now, scale) for row in self.open_cases(limit)]
-        executed = self.execute_due(now)
+        # Operator state, resolved once per tick. A pause read per case could
+        # change halfway through a pass and leave half the ladder moving.
+        paused = ops.pause_set(self.con)
+        self.apply_runtime_mode()
+        decided = [self.decide_case(row, now, scale, paused)
+                   for row in self.open_cases(limit)]
+        executed = self.execute_due(now, paused)
+        held = len([d for d in decided if d and d.get("paused")])
+        n = len([d for d in decided if d])
         return {
             "at": now.isoformat(), "time_scale": scale,
+            "paused": paused.as_json(),
             "decided": [d for d in decided if d], "executed": executed,
-            "verdict": (f"{len([d for d in decided if d])} decision(s), "
-                        f"{len(executed)} action(s) executed"),
+            "verdict": (f"{n} decision(s), {len(executed)} action(s) executed"
+                        + (f", {held} case(s) held by an operator pause" if held else "")),
         }
+
+    def apply_runtime_mode(self) -> None:
+        """Follow the Ops tab's dry-run/live toggle without a restart.
+
+        Flipping the flag on the existing executor rather than rebuilding it: the
+        notifier and the Razorpay client are built from the environment and do not
+        change when the mode does, and rebuilding them every second would make an
+        SMTP login part of the tick loop.
+        """
+        if not hasattr(self.executor, "dry_run"):
+            return
+        want = ops.effective_dry_run(self.con)["dry_run"]
+        if bool(self.executor.dry_run) != bool(want):
+            log.warning("runtime mode changed by operator: dry_run %s -> %s",
+                        self.executor.dry_run, want)
+            self.executor.dry_run = bool(want)
 
     def open_cases(self, limit: int = 50) -> list:
         """Live cases with no action already in flight.
@@ -130,12 +170,25 @@ class LiveWorker:
             "   WHERE status IN ('PENDING', 'IN_FLIGHT', 'UNKNOWN'))"
             " ORDER BY amount DESC LIMIT ?", (limit,)))
 
-    def decide_case(self, case_row, now: datetime, scale: float) -> dict | None:
+    def decide_case(self, case_row, now: datetime, scale: float,
+                    paused: "ops.PauseSet | None" = None) -> dict | None:
         snap = self.snapshot(case_row, now)
         if snap is None:
             return None
 
-        d = decide(snap, self.cfg, self.posterior, self.rng)
+        # An operator pause is checked BEFORE `decide()`, not inside it. The gates
+        # are the engine's own reasons to stop; this is a human's, and mixing the
+        # two would put a person's judgement into the audit trail as though the
+        # engine had reached it.
+        paused = paused if paused is not None else ops.pause_set(self.con)
+        held = paused.blocks_case(snap.merchant_id, snap.rung)
+        if held:
+            return {"case_id": snap.case_id, "action": None, "paused": True,
+                    "stop_reason": held, "scheduled_for": None,
+                    "why": "held by an operator pause -- no decision was made"}
+
+        cfg = self.config_for(snap.merchant_id)
+        d = decide(snap, cfg, self.posterior, self.rng)
         self.record(d, case_row, now)
 
         if d.action in (ActionType.NONE, ActionType.WAIT):
@@ -156,6 +209,14 @@ class LiveWorker:
                     "scheduled_for": None,
                     "why": f"case closed {status} -- no customer contact"}
 
+        # The decision is recorded either way. What a per-action pause stops is the
+        # scheduling of it, so the trail still shows what the engine would have done.
+        blocked = paused.blocks_action(d.action.value)
+        if blocked:
+            return {"case_id": snap.case_id, "action": d.action.value, "paused": True,
+                    "stop_reason": blocked, "scheduled_for": None,
+                    "why": "decided, but this action type is paused -- nothing scheduled"}
+
         at = scaled(d.execute_at or now, now, scale)
         aid = ex.schedule(self.con, snap.case_id, snap.obligation_id, d.action, at)
         self.con.execute("UPDATE cases SET actions_taken = actions_taken + 1,"
@@ -167,9 +228,24 @@ class LiveWorker:
                 "real_delay_seconds": round((at - now).total_seconds(), 1),
                 "why": d.notes or "chosen on expected uplift"}
 
-    def execute_due(self, now: datetime) -> list[dict]:
+    def execute_due(self, now: datetime, paused: "ops.PauseSet | None" = None) -> list[dict]:
+        paused = paused if paused is not None else ops.pause_set(self.con)
         out = []
         for row in ex.due_actions(self.con, now):
+            # A pause raised after this action was queued. `pause()` cancels what
+            # was pending, so reaching here means the action was scheduled in the
+            # same tick or the pause is narrower than the cancel -- either way, a
+            # paused engine does not execute.
+            blocked = paused.blocks_action(row["type"])
+            if blocked:
+                self.con.execute(
+                    "UPDATE actions SET status='CANCELLED', detail=? WHERE action_id=?",
+                    (f"CANCELLED_BY_PAUSE ({blocked}) at execution time", row["action_id"]))
+                self.con.commit()
+                out.append({"action_id": row["action_id"], "type": row["type"],
+                            "status": "CANCELLED", "detail": blocked,
+                            "contact_sent": False})
+                continue
             res = ex.run(self.con, row, self.executor)
             res["type"] = row["type"]
             if res.get("contact_sent"):

@@ -1,0 +1,438 @@
+"""
+Operator control. The stop button, and everything an operator needs to trust it.
+
+Three ideas, and the ordering between them is the whole design:
+
+1. PAUSE STOPS DECIDING AND ACTING. IT DOES NOT STOP INGESTING.
+   A recovery engine that stops listening when it is paused comes back to a
+   ledger that has silently drifted: payments landed, checkouts were abandoned,
+   webhooks were retried and dropped. The single most dangerous moment for a
+   money system is the minute after somebody hits stop, and it is dangerous
+   precisely because the temptation is to stop everything. So: webhooks are
+   still accepted, settlements are still matched, cases are still opened, the
+   abandonment sweep still runs. What stops is the engine choosing to spend
+   money or contact a human.
+
+2. PENDING ACTIONS ARE CANCELLED, NOT HELD.
+   A queue of contacts drained the instant somebody resumes is not a pause, it
+   is a delay with a cliff at the end. Cancelling costs the rung that was
+   already climbed -- the ladder does not descend -- and that cost is shown on
+   the tab rather than hidden.
+
+3. NOTHING HERE IS READ BY THE BENCHMARK.
+   Every function takes a live sqlite connection. `sim/` never opens one and
+   `run_benchmark.py` never calls this module, so no operator setting can move
+   a benchmark number. `app/domain/` is untouched: quiet hours are still
+   enforced by G12 reading `cfg.quiet_start`/`cfg.quiet_end`, and all this does
+   is decide WHICH config the live worker hands it.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any
+
+from app.config_loader import load_config
+
+log = logging.getLogger("razorrecovery.ops")
+
+GLOBAL, MERCHANT, ACTION, RUNG = "global", "merchant", "action", "rung"
+SCOPES = (GLOBAL, MERCHANT, ACTION, RUNG)
+
+# Settings keys. JSON values, one row each.
+K_DRY_RUN = "dry_run"                 # true | false | null (null = follow env)
+K_QUIET = "quiet_hours"               # {merchant_id: {"start": int, "end": int}}
+
+
+def default_merchant() -> str:
+    """The merchant this deployment serves.
+
+    HONEST LIMIT: one merchant per process, from `MERCHANT_ID`. `LiveWorker`
+    stamps every snapshot with it, so there is no per-case merchant to scope by
+    yet. Pausing this merchant is therefore the same as pausing globally today,
+    and the Ops tab says so rather than implying a multi-tenant control that has
+    nothing behind it.
+    """
+    return os.getenv("MERCHANT_ID", "merchant_1")
+
+
+# -- pauses ----------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PauseSet:
+    """The active pauses, resolved once per tick and asked many times."""
+
+    rows: tuple[dict, ...] = ()
+
+    @property
+    def active(self) -> bool:
+        return bool(self.rows)
+
+    @property
+    def is_global(self) -> bool:
+        return any(r["scope"] == GLOBAL for r in self.rows)
+
+    def _values(self, scope: str) -> set[str]:
+        return {str(r["value"]) for r in self.rows if r["scope"] == scope and r["value"]}
+
+    def blocks_case(self, merchant_id: str, rung: int) -> str | None:
+        """Why this case may not be decided on, or None. A reason, never a bool."""
+        if self.is_global:
+            return "PAUSED_GLOBAL"
+        if merchant_id in self._values(MERCHANT):
+            return f"PAUSED_MERCHANT:{merchant_id}"
+        for v in self._values(RUNG):
+            try:
+                if int(rung) >= int(v):
+                    return f"PAUSED_RUNG>={v}"
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def blocks_action(self, action_type: str) -> str | None:
+        if self.is_global:
+            return "PAUSED_GLOBAL"
+        if str(action_type).upper() in {v.upper() for v in self._values(ACTION)}:
+            return f"PAUSED_ACTION:{action_type}"
+        return None
+
+    def as_json(self) -> list[dict]:
+        return [dict(r) for r in self.rows]
+
+
+def pause_set(con) -> PauseSet:
+    return PauseSet(tuple(dict(r) for r in con.execute(
+        "SELECT * FROM pauses WHERE lifted_at IS NULL ORDER BY id")))
+
+
+def pause(con, scope: str = GLOBAL, value: str | None = None, *,
+          reason: str = "", who: str = "operator",
+          now: datetime | None = None) -> dict:
+    """Raise a pause and cancel everything already queued inside it.
+
+    Cancelling is the second half of the promise. Freezing new decisions while a
+    PAY_LINK scheduled ninety seconds ago still fires is not a pause, and the
+    operator who pressed the button would have no way to know.
+    """
+    scope = scope if scope in SCOPES else GLOBAL
+    now = now or datetime.now()
+    if scope == GLOBAL:
+        value = None
+    elif not value:
+        raise ValueError(f"scope '{scope}' needs a value")
+
+    existing = con.execute(
+        "SELECT id FROM pauses WHERE scope = ? AND IFNULL(value,'') = IFNULL(?,'')"
+        " AND lifted_at IS NULL", (scope, value)).fetchone()
+    if existing:
+        return {"ok": True, "already": True, "pause_id": existing[0],
+                "cancelled": 0, "pauses": pause_set(con).as_json()}
+
+    cur = con.execute(
+        "INSERT INTO pauses (scope, value, reason, who, created_at, lifted_at,"
+        " lifted_by, cancelled) VALUES (?,?,?,?,?,NULL,NULL,0)",
+        (scope, value, reason or None, who, now.isoformat()))
+    pid = int(cur.lastrowid or 0)
+    killed = cancel_pending(con, scope, value, who)
+    con.execute("UPDATE pauses SET cancelled = ? WHERE id = ?", (killed, pid))
+    # What the audit row has to answer later is "what did stopping cost us", so
+    # the count of cancelled actions is part of the record, not a log line.
+    _audit(con, who, f"pause.{scope}", None,
+           json.dumps({"scope": scope, "value": value or "everything",
+                       "cancelled": killed}),
+           reason or None, now)
+    con.commit()
+    log.warning("RECOVERY PAUSED scope=%s value=%s by=%s reason=%s -- %s pending "
+                "action(s) cancelled. Ingestion continues.",
+                scope, value, who, reason or "(none given)", killed)
+    return {"ok": True, "already": False, "pause_id": pid, "cancelled": killed,
+            "pauses": pause_set(con).as_json(),
+            "note": "events, settlements and the abandonment sweep keep running"}
+
+
+def resume(con, pause_id: int | None = None, *, who: str = "operator",
+           now: datetime | None = None) -> dict:
+    """Lift one pause, or every pause. The row stays; `lifted_at` is stamped."""
+    now = now or datetime.now()
+    if pause_id is None:
+        cur = con.execute("UPDATE pauses SET lifted_at = ?, lifted_by = ?"
+                          " WHERE lifted_at IS NULL", (now.isoformat(), who))
+    else:
+        cur = con.execute("UPDATE pauses SET lifted_at = ?, lifted_by = ?"
+                          " WHERE id = ? AND lifted_at IS NULL",
+                          (now.isoformat(), who, pause_id))
+    n = cur.rowcount
+    if n:
+        _audit(con, who, "resume", None, json.dumps({"lifted": n}), None, now)
+    con.commit()
+    log.warning("RECOVERY RESUMED: %s pause(s) lifted by %s", n, who)
+    return {"ok": True, "lifted": n, "pauses": pause_set(con).as_json(),
+            "note": ("cases resume from the rung they had already climbed -- the "
+                     "ladder never descends, so a pause costs whatever it cancelled")}
+
+
+def cancel_pending(con, scope: str, value: str | None, who: str) -> int:
+    """PENDING -> CANCELLED for everything inside the scope. Returns the count.
+
+    IN_FLIGHT is deliberately left alone: that action is mid-call and its result
+    is already unknown. Rewriting it here would be guessing, which is the one
+    thing `app/controllers/execute.py` exists not to do.
+    """
+    detail = f"CANCELLED_BY_PAUSE ({scope}{':' + value if value else ''}) by {who}"
+    base = "UPDATE actions SET status='CANCELLED', detail=? WHERE status='PENDING'"
+    if scope == GLOBAL or (scope == MERCHANT and value == default_merchant()):
+        cur = con.execute(base, (detail,))
+    elif scope == ACTION:
+        cur = con.execute(base + " AND type = ?", (detail, str(value).upper()))
+    elif scope == RUNG:
+        try:
+            floor = int(str(value))
+        except (TypeError, ValueError):
+            return 0
+        cur = con.execute(
+            base + " AND case_id IN (SELECT case_id FROM cases WHERE rung >= ?)",
+            (detail, floor))
+    else:
+        return 0
+    con.commit()
+    return cur.rowcount
+
+
+# -- settings --------------------------------------------------------------
+
+def get_setting(con, key: str, default: Any = None) -> Any:
+    r = con.execute("SELECT value FROM ops_settings WHERE key = ?", (key,)).fetchone()
+    if not r:
+        return default
+    try:
+        return json.loads(r[0])
+    except (TypeError, ValueError):
+        return default
+
+
+def set_setting(con, key: str, value: Any, *, who: str = "operator",
+                note: str | None = None, now: datetime | None = None) -> dict:
+    now = now or datetime.now()
+    before = con.execute("SELECT value FROM ops_settings WHERE key = ?", (key,)).fetchone()
+    after = json.dumps(value)
+    con.execute("INSERT OR REPLACE INTO ops_settings (key, value, changed_by, changed_at)"
+                " VALUES (?,?,?,?)", (key, after, who, now.isoformat()))
+    _audit(con, who, key, before[0] if before else None, after, note, now)
+    con.commit()
+    return {"key": key, "before": json.loads(before[0]) if before else None,
+            "after": value, "who": who, "at": now.isoformat()}
+
+
+def _audit(con, who: str, key: str, before: str | None, after: str | None,
+           note: str | None, now: datetime) -> None:
+    con.execute("INSERT INTO ops_audit (at, who, key, before, after, note)"
+                " VALUES (?,?,?,?,?,?)",
+                (now.isoformat(), who, key, before, after, note))
+
+
+def audit(con, limit: int = 30) -> list[dict]:
+    out = []
+    for r in con.execute("SELECT * FROM ops_audit ORDER BY id DESC LIMIT ?", (limit,)):
+        d = dict(r)
+        for k in ("before", "after"):
+            if d.get(k):
+                try:
+                    d[k] = json.loads(d[k])
+                except (TypeError, ValueError):
+                    pass
+        out.append(d)
+    return out
+
+
+# -- dry run <-> live ------------------------------------------------------
+
+def effective_dry_run(con) -> dict:
+    """Which mode we are actually in, and who decided it.
+
+    The env default wins until an operator overrides it in this database, and the
+    answer always says which of the two it was. "Are we live right now" is not a
+    question anybody should have to answer by reading a shell history.
+    """
+    override = get_setting(con, K_DRY_RUN, None)
+    env = _env_dry_run()
+    if override is None:
+        return {"dry_run": env, "source": "env", "env_default": env}
+    return {"dry_run": bool(override), "source": "operator", "env_default": env}
+
+
+def set_dry_run(con, value: bool | None, *, who: str = "operator",
+                note: str | None = None) -> dict:
+    """`None` clears the override and falls back to the environment."""
+    out = set_setting(con, K_DRY_RUN, value, who=who, note=note)
+    state = effective_dry_run(con)
+    if not state["dry_run"]:
+        log.warning("LIVE MODE ENABLED by %s -- real sends are now possible. %s",
+                    who, note or "")
+    else:
+        log.warning("DRY RUN restored by %s -- nothing will leave the process.", who)
+    return {**out, **state}
+
+
+def _env_dry_run() -> bool:
+    return os.environ.get("DRY_RUN", "true").strip().lower() not in ("false", "0", "no")
+
+
+# -- merchant-configurable quiet hours -------------------------------------
+# G12 is unchanged and is NOT weakened. It reads `cfg.quiet_start`/`cfg.quiet_end`
+# from whatever config it is handed; all that changes is that the live worker now
+# hands it a config built for that merchant. A 24/7 gaming merchant and a B2B
+# invoicing merchant genuinely have different windows, and the alternative --
+# editing config/default.yaml -- would move the benchmark inputs.
+
+_CFG_CACHE: dict[tuple[int, int], Any] = {}
+
+
+def quiet_hours_all(con) -> dict:
+    return get_setting(con, K_QUIET, {}) or {}
+
+
+def quiet_hours(con, merchant_id: str | None = None) -> dict:
+    """The window in force for a merchant, and where it came from."""
+    merchant_id = merchant_id or default_merchant()
+    base = load_config()
+    over = quiet_hours_all(con).get(merchant_id)
+    if not over:
+        return {"merchant_id": merchant_id, "start": base.quiet_start,
+                "end": base.quiet_end, "source": "config/default.yaml"}
+    return {"merchant_id": merchant_id, "start": int(over["start"]),
+            "end": int(over["end"]), "source": "operator"}
+
+
+def set_quiet_hours(con, merchant_id: str, start: int, end: int, *,
+                    who: str = "operator", note: str | None = None) -> dict:
+    """Set a merchant's contact window. 0..23, and start == end means no window.
+
+    Validation is a range check, not a policy: an operator may legitimately want
+    0->0 (a 24/7 merchant) and refusing that would be the dashboard overruling
+    the merchant. What it may NOT do is write something G12 cannot evaluate.
+    """
+    start, end = int(start), int(end)
+    for v in (start, end):
+        if not 0 <= v <= 23:
+            raise ValueError(f"quiet hours must be 0..23, got {v}")
+    all_ = dict(quiet_hours_all(con))
+    all_[merchant_id] = {"start": start, "end": end}
+    out = set_setting(con, K_QUIET, all_, who=who, note=note)
+    log.warning("quiet hours for %s set to %02d:00-%02d:00 by %s",
+                merchant_id, start, end, who)
+    return {**out, **quiet_hours(con, merchant_id),
+            "config_version": config_for(con, merchant_id).version}
+
+
+def config_for(con, merchant_id: str | None = None):
+    """The Config the live worker should hand `decide()` for this merchant.
+
+    Returns the plain config when there is no override, so the common path is
+    byte-identical to what it was before this module existed.
+    """
+    q = quiet_hours(con, merchant_id)
+    if q["source"] != "operator":
+        return load_config()
+    key = (q["start"], q["end"])
+    if key not in _CFG_CACHE:
+        _CFG_CACHE[key] = load_config(**{"compliance.quiet_hours.start": q["start"],
+                                         "compliance.quiet_hours.end": q["end"]})
+    return _CFG_CACHE[key]
+
+
+# -- what happened today ---------------------------------------------------
+
+def today(con, now: datetime | None = None) -> dict:
+    """Decisions, actions, contacts, recovered, budget used. Since local midnight.
+
+    `budget_used` is real money: `config.action_cost` in paise for every action
+    executed today. It is shown next to what was recovered because a recovery
+    number with no cost next to it is a number nobody can act on.
+    """
+    now = now or datetime.now()
+    since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    cfg = load_config()
+
+    def one(sql, *p):
+        return int(con.execute(sql, p).fetchone()[0] or 0)
+
+    by_type = {r["type"]: r["n"] for r in con.execute(
+        "SELECT type, COUNT(*) n FROM actions WHERE created_at >= ?"
+        " AND status IN ('DONE','FAILED','UNKNOWN','IN_FLIGHT') GROUP BY type", (since,))}
+    spent = sum(int(cfg.action_cost.get(t, 0)) * n for t, n in by_type.items())
+    recovered = one("SELECT COALESCE(SUM(amount),0) FROM settlements WHERE settled_at >= ?",
+                    since)
+    attributed = one("SELECT COALESCE(SUM(amount),0) FROM settlements"
+                     " WHERE settled_at >= ? AND attributed = 1", since)
+    return {
+        "since": since,
+        "decisions": one("SELECT COUNT(*) FROM decisions WHERE run_id='live'"
+                         " AND decided_at >= ?", since),
+        # The count of decisions is large and the count of cases is small, and
+        # without both the first number reads as a lie. A waiting case is
+        # re-decided every tick -- that is what WAIT means here: ask again in a
+        # second -- so a handful of open cases produces thousands of rows a day.
+        "cases_decided": one("SELECT COUNT(DISTINCT case_id) FROM decisions"
+                             " WHERE run_id='live' AND decided_at >= ?", since),
+        "actions_executed": sum(by_type.values()),
+        "actions_by_type": by_type,
+        "actions_cancelled": one("SELECT COUNT(*) FROM actions WHERE created_at >= ?"
+                                 " AND status = 'CANCELLED'", since),
+        "contacts": one("SELECT COUNT(*) FROM contacts WHERE sent_at >= ? AND ok = 1",
+                        since),
+        "contacts_failed": one("SELECT COUNT(*) FROM contacts WHERE sent_at >= ?"
+                               " AND ok = 0", since),
+        "recovered": recovered,
+        "recovered_attributed": attributed,
+        "budget_used": spent,
+        "budget_note": ("cost of the actions taken, from config action_cost. "
+                        "recovered is money that arrived; attributed is the part "
+                        "we followed a contact with"),
+        "contact_budget_per_tick": cfg.global_contact_budget_per_tick,
+    }
+
+
+# -- the attention list ----------------------------------------------------
+
+def attention(con, now: datetime | None = None) -> dict:
+    """The four things a human has to look at. Nothing here resolves itself.
+
+    UNKNOWN actions and FAILED actions are separate rows on purpose. UNKNOWN
+    means we do not know whether money moved and the reconciler can answer it.
+    FAILED means we do know, and nobody was told -- which is the gap
+    `docs/evidence/pre_3a_wasted_rung.txt` found: an INTENT_ONLY retry burns a
+    rung and is silent everywhere except a column in this table.
+    """
+    now = now or datetime.now()
+    cfg = load_config()
+    since7 = (now - timedelta(days=7)).isoformat()
+
+    unknown = [dict(r) for r in con.execute(
+        "SELECT action_id, case_id, obligation_id, type, status, detail, execute_at,"
+        " attempts FROM actions WHERE status = 'UNKNOWN' ORDER BY execute_at LIMIT 50")]
+    failed = [dict(r) for r in con.execute(
+        "SELECT action_id, case_id, obligation_id, type, status, detail, execute_at,"
+        " attempts FROM actions WHERE status = 'FAILED' ORDER BY execute_at DESC LIMIT 50")]
+    capped = [dict(r) for r in con.execute(
+        "SELECT customer_id, COUNT(*) AS contacts_7d, MAX(sent_at) AS last_contact"
+        " FROM contacts WHERE ok = 1 AND sent_at >= ? GROUP BY customer_id"
+        " HAVING contacts_7d >= ? ORDER BY contacts_7d DESC LIMIT 50",
+        (since7, cfg.max_contacts_7d))]
+    top = [dict(r) for r in con.execute(
+        "SELECT case_id, obligation_id, customer_id, amount, rung, attempts,"
+        " failure_class, opened_at FROM cases WHERE run_id = 'live' AND status = 'OPEN'"
+        " AND rung >= ? ORDER BY amount DESC LIMIT 50", (cfg.max_rung - 1,))]
+
+    return {
+        "unknown_actions": unknown,
+        "failed_actions": failed,
+        "at_contact_cap": capped,
+        "ladder_top": top,
+        "max_contacts_7d": cfg.max_contacts_7d,
+        "max_rung": cfg.max_rung,
+        "counts": {"unknown_actions": len(unknown), "failed_actions": len(failed),
+                   "at_contact_cap": len(capped), "ladder_top": len(top)},
+    }
