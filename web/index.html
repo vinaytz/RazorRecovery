@@ -1,169 +1,519 @@
 <!doctype html>
+<!--
+  RazorRecovery — the operator's dashboard.
+
+  Six tabs over one ledger. The scoreboard is the argument, the other five are
+  the working papers behind it. Every id, class hook, inline handler and API call
+  the page script depends on is unchanged; the only JS touched is the chart's
+  own colours and padding, marked in place below.
+-->
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Payment recovery measured against a randomly
+  held-out control group, so only the money the engine can prove it caused is counted.">
 <title>RazorRecovery</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect width='18' height='18' rx='4' fill='%231a6b4f'/%3E%3Crect x='3' y='10' width='3' height='5' rx='1' fill='%23fff' opacity='.5'/%3E%3Crect x='7.5' y='7' width='3' height='8' rx='1' fill='%23fff' opacity='.75'/%3E%3Crect x='12' y='3' width='3' height='12' rx='1' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-  :root{
-    --ink:#16181d; --muted:#6b7079; --line:#e3e5e9; --bg:#fbfbfc; --card:#fff;
-    --control:#8a8f98; --baseline:#b8bcc4; --engine:#1a6b4f; --oracle:#cfd3d9;
-    --warn:#a8531c; --stop:#8f2c25; --stopbg:#fbeceb; --stopline:#eccfcb;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
-    font-variant-numeric:tabular-nums}
-  .wrap{max-width:1120px;margin:0 auto;padding:40px 28px 80px}
-  header{display:flex;justify-content:space-between;align-items:baseline;gap:24px;flex-wrap:wrap}
-  h1{font-size:21px;font-weight:600;margin:0;letter-spacing:-.01em}
-  .tag{color:var(--muted);font-size:14px;margin:6px 0 0}
-  select{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:#fff}
-  nav{display:flex;gap:26px;margin:30px 0 0;border-bottom:1px solid var(--line)}
-  nav button{background:none;border:0;padding:0 0 12px;font:inherit;color:var(--muted);
-    cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
-  nav button.on{color:var(--ink);border-bottom-color:var(--ink)}
-  section{display:none;padding-top:34px} section.on{display:block}
-  .hero{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:30px 32px}
-  .big{font-size:40px;font-weight:600;letter-spacing:-.02em;margin:2px 0 0}
-  .ci{color:var(--muted);font-size:14px;margin-top:6px;max-width:78ch}
-  .lede{color:var(--muted);font-size:14px;max-width:78ch}
-  /* The answer, at the top of the record, in the size of an answer. Smaller than
-     the scoreboard's headline number, because the chart is the loud thing on this
-     site and a second 40px figure would compete with it. */
-  .verdict{font-size:27px;font-weight:600;letter-spacing:-.015em;margin:4px 0 0}
-  .ci b{font-weight:600;color:var(--ink)}
-  .chartbox{height:340px;margin-top:30px}
-  /* The chart is the argument, so it gets the room and the only strong colour on
-     the page. Everything below it is a list of facts in one weight. */
-  .chartnote{color:var(--muted);font-size:13px;margin-top:16px;max-width:70ch}
-  /* Facts, not cards. A grid of identical boxes gives six numbers the same
-     weight and hides which one matters; a ruled list gives them an order and
-     lets the values line up in one column you can read down. */
-  .facts{display:grid;grid-template-columns:1fr auto;gap:0;margin:0}
-  .facts .f{display:contents}
-  .facts .fk{padding:13px 0;border-bottom:1px solid #f0f1f3}
-  .facts .fv{padding:13px 0;border-bottom:1px solid #f0f1f3;text-align:right;
-    font-weight:600;white-space:nowrap;padding-left:24px}
-  .facts .fn{color:var(--muted);font-size:13px;margin-top:2px}
-  .facts .f:last-child .fk,.facts .f:last-child .fv{border-bottom:0}
-  /* Figures, not cards. Four bordered boxes in a row give four numbers the same
-     weight and the same visual promise as the chart above them, and they read as
-     a dashboard template rather than as this system's readout. A single ruled
-     band with hairlines between the figures says the same thing more quietly and
-     survives a laptop width, where a 4-up card grid wraps into a 2x2 block. */
-  .strip{display:flex;flex-wrap:wrap;margin-top:22px;
-    border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-  .strip .s{padding:14px 28px 14px 0;margin-right:28px;
-    border-right:1px solid var(--line);flex:0 1 auto}
-  .strip .s:last-child{border-right:0;margin-right:0;padding-right:0}
-  .strip .k{color:var(--muted);font-size:13px}
-  .strip .v{font-size:21px;font-weight:600;margin-top:3px;letter-spacing:-.01em}
-  .strip .n{color:var(--muted);font-size:12.5px;margin-top:2px}
-  table{width:100%;border-collapse:collapse;margin-top:20px;font-size:14px}
-  th{text-align:left;color:var(--muted);font-weight:500;padding:9px 10px;
-    border-bottom:1px solid var(--line)}
-  td{padding:10px;border-bottom:1px solid var(--line)}
-  tbody tr{cursor:pointer} tbody tr:hover{background:#f4f5f7}
-  .num{text-align:right}
-  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;
-    background:#eef0f3;color:#454a52}
-  .pill.good{background:#e4f0ea;color:#1a6b4f} .pill.warn{background:#f7ece3;color:var(--warn)}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;
-    padding:24px 26px;margin-top:20px}
-  .panel h3{margin:0 0 14px;font-size:15px;font-weight:600}
-  .kv{display:grid;grid-template-columns:190px 1fr;gap:7px 18px;font-size:14px}
-  .kv div:nth-child(odd){color:var(--muted)}
-  .gate{display:flex;justify-content:space-between;padding:6px 0;
-    border-bottom:1px solid #f0f1f3;font-size:13.5px}
-  .gate .no{color:var(--warn)} .gate .yes{color:#9aa0a8}
-  .gate .gid{color:#9aa0a8;font-size:12.5px;font-variant-numeric:tabular-nums}
-  button.act{font:inherit;padding:9px 15px;border:1px solid var(--line);background:#fff;
-    border-radius:7px;cursor:pointer}
-  button.act:hover{background:#f4f5f7}
-  .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
-  pre{background:#f6f7f8;border:1px solid var(--line);border-radius:8px;padding:14px;
-    overflow:auto;font-size:12.5px;margin:12px 0 0;max-height:340px}
-  .empty{color:var(--muted);padding:34px 0}
-  .lost td{color:var(--warn)}
-  .who{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:6px;
-    background:#fff;width:120px}
-  /* The one loud control on the page. Specificity has to beat `button.act`, which
-     paints every other button white -- otherwise this is white text on white. */
-  button.act.stop{background:var(--stop);border-color:var(--stop);color:#fff}
-  button.act.stop:hover{background:#7d251f;border-color:#7d251f}
-  .banner{display:none;align-items:center;justify-content:space-between;gap:18px;
-    background:var(--stopbg);border:1px solid var(--stopline);color:var(--stop);
-    padding:12px 16px;border-radius:8px;margin:22px 0 0;font-size:14px}
-  .banner b{font-weight:600}
-  .banner button{background:#fff;border:1px solid var(--stop);color:var(--stop)}
-  .banner button:hover{background:var(--stopbg)}
-  .subt{color:var(--muted);font-size:13px;margin-top:-6px}
-  .small{color:var(--muted);font-size:13px}
-  /* The confirm panel only appears when the operator says "go live". It shows
-     what that changes, and it cannot be dismissed by anything but a fresh choice
-     -- the server rejects the transition without confirmation either way. */
-  .confirm{background:var(--stopbg);border:1px solid var(--stopline);
-    border-radius:8px;padding:14px 18px;margin-top:14px}
-  .confirm .row{margin-bottom:0}
-  .confirm button{margin-top:12px}
-  .opsnote{margin-top:8px;font-size:13px;color:var(--muted)}
-  .opsnote.err{color:var(--stop)}
-  .opsnote.ok{color:var(--engine)}
+/* ==========================================================================
+   RazorRecovery — design system
+   --------------------------------------------------------------------------
+   One palette, one type scale, one spacing scale.
 
-  /* The feed. A time column of fixed width so the timestamps line up as a ruler
-     down the left, and a rule between rows rather than a card around each: sixty
-     cards is a wall, sixty lines is a list you can read. */
-  .feed{margin-top:8px;border-top:1px solid var(--line)}
-  .ev{display:grid;grid-template-columns:76px 15px 1fr;gap:0 12px;
-    padding:9px 2px;border-bottom:1px solid #f0f1f3;align-items:baseline}
-  .ev .t{color:var(--muted);font-size:12.5px;
-    font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
-  /* The dot is the only colour in a row. It is what makes a page of text
-     scannable: money arriving is green, a stop is red, everything else is
-     grey and stays out of the way. */
-  .ev .dot{width:7px;height:7px;border-radius:50%;background:#c9ced5;
-    align-self:center;margin-top:1px}
-  .ev.good .dot{background:var(--engine)} .ev.bad .dot{background:var(--stop)}
-  .ev.warn .dot{background:var(--warn)}   .ev.stop .dot{background:var(--stop)}
-  .ev.act .dot{background:#3a5a8c}
-  .ev .h{font-size:14px}
-  .ev .d{color:var(--muted);font-size:13px;margin-top:2px}
-  .ev .d code{background:#f2f3f5;border-radius:4px;padding:1px 5px;font-size:12px}
-  .ev .cnt{color:var(--muted);font-size:12.5px;font-weight:500;
-    font-variant-numeric:tabular-nums}
-  .ev .amt{font-variant-numeric:tabular-nums}
-  .ev.stop .h,.ev.bad .h{color:var(--stop)}
-  .ev .gates{margin-top:4px;font-size:12.5px;color:var(--warn)}
-  /* A row that arrived on this poll. It fades from a tint to nothing over a
-     second and a half -- enough to catch the eye on a filmed demo, short enough
-     that a still screenshot is never mid-animation. */
-  @keyframes settle{from{background:#eef3fa}to{background:transparent}}
-  .ev.fresh{animation:settle 1.5s ease-out}
-  .feedhead{display:flex;justify-content:space-between;align-items:baseline;
-    gap:16px;flex-wrap:wrap}
+   Colour carries meaning and nothing else: green is money the engine can prove
+   it caused, amber is something held back on purpose, red is something stopped.
+   Every other surface is neutral, so the two or three coloured things on a
+   screen are the ones worth reading.
+
+   --warn is read from JS (showDecision writes `color:var(--warn)` on a negative
+   uplift), and --engine / --stop / --stopbg / --stopline keep their original
+   names so nothing downstream has to change.
+   ========================================================================== */
+:root{
+  /* ---- Neutrals ---------------------------------------------------------
+     A cool slate carrying a trace of the engine green, so the greys and the
+     brand read as one family rather than two things placed next to each other. */
+  --n0:#ffffff;
+  --n25:#f7faf9;
+  --n50:#eff4f2;
+  --n100:#e5ebe9;
+  --n200:#d7dfdc;
+  --n300:#bcc7c3;
+  --n400:#8e9b97;
+  --n500:#66726d;
+  --n600:#4c5854;
+  --n700:#353f3b;
+  --n800:#1f2926;
+  --n900:#0e1614;
+
+  /* ---- Engine green -----------------------------------------------------
+     #1a6b4f is the colour the chart paints itself, so the page is built around
+     that value instead of beside it. */
+  --g25:#f4faf7; --g50:#e9f4ef; --g100:#cfe6dc; --g200:#9fcdb9;
+  --g500:#1f7d5b; --g600:#1a6b4f; --g700:#13543e; --g800:#0c3b2c;
+
+  /* ---- Held back on purpose --------------------------------------------- */
+  --a25:#fefaf5; --a50:#fbf1e7; --a100:#f2dcc4; --a600:#a8531c; --a700:#874113;
+
+  /* ---- Stopped ----------------------------------------------------------- */
+  --r25:#fefafa; --r50:#fbedec; --r100:#f0d3d0; --r600:#8f2c25; --r700:#73201b;
+
+  /* ---- Something the engine did, not something done to it ---------------- */
+  --b50:#edf2f9; --b100:#d6e2f1; --b600:#31558a;
+
+  /* ---- Semantic aliases -------------------------------------------------- */
+  --ink:var(--n900);
+  --ink-2:var(--n700);
+  --muted:var(--n500);
+  --line:var(--n200);
+  --hair:var(--n100);
+  --bg:var(--n25);
+  --card:var(--n0);
+  --brand:var(--g600);
+  --engine:var(--g600);
+  --warn:var(--a600);
+  --stop:var(--r600);
+  --stopbg:var(--r50);
+  --stopline:var(--r100);
+
+  /* ---- Type scale --------------------------------------------------------
+     A 1.125–1.25 ramp. Nothing on the page is sized by eye. */
+  --t-xs:12px;      /* timestamps, table headers */
+  --t-sm:13px;      /* notes under a figure, secondary detail */
+  --t-md:14px;      /* ledes, table body */
+  --t-base:15px;    /* body */
+  --t-lg:16px;      /* figure values inline */
+  --t-xl:17px;      /* panel titles */
+  --t-2xl:22px;     /* strip figures */
+  --t-3xl:28px;     /* decision verdict */
+
+  /* ---- Spacing — 4px base, so vertical rhythm is one decision ------------ */
+  --s1:4px;  --s2:8px;  --s3:12px; --s4:16px; --s5:20px;
+  --s6:24px; --s7:32px; --s8:40px; --s9:56px; --s10:80px;
+
+  /* ---- Radii — a hierarchy, not one value on everything ------------------ */
+  --r-xs:6px; --r-sm:8px; --r-md:10px; --r-lg:14px; --r-xl:18px; --r-full:999px;
+
+  /* ---- Elevation --------------------------------------------------------
+     Borders carry the structure. Shadow marks only the things that float. */
+  --sh-1:0 1px 2px rgba(14,22,20,.04);
+  --sh-2:0 1px 2px rgba(14,22,20,.05), 0 12px 28px -16px rgba(14,22,20,.22);
+  --sh-3:0 2px 6px rgba(14,22,20,.06), 0 24px 56px -24px rgba(14,22,20,.30);
+  --ring:0 0 0 3px rgba(26,107,79,.22);
+  --ring-stop:0 0 0 3px rgba(143,44,37,.24);
+
+  --font:"Inter","Inter var",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
+         "Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --maxw:1200px;
+  --gutter:var(--s7);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font:var(--t-base)/1.6 var(--font);
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum" 1,"cv05" 1;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+h1,h2,h3{letter-spacing:-.018em;font-weight:600}
+p{margin:0}
+a{color:var(--g700);text-decoration:none;border-bottom:1px solid var(--g200);
+  transition:color .15s ease,border-color .15s ease}
+a:hover{color:var(--g800);border-bottom-color:var(--g500)}
+a:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
+b,strong{font-weight:600;color:var(--ink)}
+i{font-style:italic}
+code{font-family:var(--mono);font-size:.86em;background:var(--n100);
+  color:var(--n700);border-radius:5px;padding:2px 5px;letter-spacing:-.01em}
+::selection{background:var(--g100);color:var(--g800)}
+
+.skip{position:absolute;left:-9999px;top:0;z-index:100;background:var(--ink);
+  color:#fff;padding:12px 18px;border-radius:0 0 var(--r-md) 0;border:0;
+  font-size:var(--t-md);font-weight:500}
+.skip:focus{left:0}
+
+/* ==========================================================================
+   App bar — identity and the run selector on one line, tabs on the next.
+   The whole bar sticks, so "which run am I looking at" never scrolls away.
+   ========================================================================== */
+.appbar{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.88);
+  backdrop-filter:saturate(180%) blur(16px);
+  -webkit-backdrop-filter:saturate(180%) blur(16px);
+  border-bottom:1px solid var(--line)}
+.appbar__in{max-width:var(--maxw);margin:0 auto;padding:var(--s4) var(--gutter) var(--s3);
+  display:flex;align-items:center;justify-content:space-between;gap:var(--s5)}
+.mark{display:flex;align-items:center;gap:var(--s3);min-width:0}
+.mark__tile{flex:none;width:34px;height:34px;border-radius:10px;
+  background:linear-gradient(160deg,var(--g500),var(--g700));color:#fff;
+  display:grid;place-items:center;
+  box-shadow:0 1px 2px rgba(12,59,44,.4),inset 0 1px 0 rgba(255,255,255,.16)}
+.mark__text{min-width:0}
+.mark h1{margin:0;font-size:var(--t-xl);font-weight:650;line-height:1.25}
+.tag{margin:2px 0 0;font-size:var(--t-sm);color:var(--muted);line-height:1.35}
+
+.runsel{display:flex;align-items:center;gap:var(--s2);flex:none}
+.runsel label{font-size:var(--t-sm);color:var(--muted);white-space:nowrap;font-weight:500}
+
+/* ---- Tabs --------------------------------------------------------------
+   Underline tabs rather than a segmented pill: six destinations is too many
+   for a pill track, and an underline scales to a scroller on a phone. */
+.navwrap{position:relative;max-width:var(--maxw);margin:0 auto}
+nav{display:flex;gap:2px;padding:0 var(--gutter);overflow-x:auto;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch}
+nav::-webkit-scrollbar{display:none}
+nav button{position:relative;flex:none;background:none;border:0;font:inherit;
+  font-size:var(--t-md);font-weight:500;color:var(--muted);
+  padding:10px 14px 14px;cursor:pointer;white-space:nowrap;
+  border-radius:var(--r-sm) var(--r-sm) 0 0;
+  transition:color .15s ease,background .15s ease}
+nav button::after{content:"";position:absolute;left:12px;right:12px;bottom:0;
+  height:2px;background:transparent;border-radius:2px 2px 0 0;
+  transform:scaleX(.4);opacity:0;
+  transition:transform .2s cubic-bezier(.4,0,.2,1),opacity .2s ease,background .2s ease}
+nav button:hover{color:var(--ink);background:var(--n50)}
+nav button.on{color:var(--ink);font-weight:600}
+nav button.on::after{background:var(--brand);transform:scaleX(1);opacity:1}
+nav button:focus-visible{outline:2px solid var(--brand);outline-offset:-3px}
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+.wrap{max-width:var(--maxw);margin:0 auto;padding:var(--s7) var(--gutter) var(--s10)}
+section{display:none}
+section.on{display:block}
+@media (prefers-reduced-motion:no-preference){
+  section.on{animation:paneIn .24s cubic-bezier(.4,0,.2,1)}
+  @keyframes paneIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+}
+
+/* ==========================================================================
+   Hero — the headline claim.
+   The chart runs the full width of the card rather than sharing a row with the
+   number: the gap bracket the plugin draws needs real room on the right, and a
+   squeezed plot is what made this look unfinished.
+   ========================================================================== */
+.hero{position:relative;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r-xl);box-shadow:var(--sh-2);padding:var(--s7);
+  overflow:hidden}
+.hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--g500),var(--g700))}
+.hero__head{display:grid;grid-template-columns:minmax(0,1fr) auto;
+  gap:var(--s5) var(--s8);align-items:start}
+.hero .lede{margin:0;font-size:var(--t-md)}
+.big{font-size:clamp(38px,5vw,52px);font-weight:660;letter-spacing:-.038em;
+  line-height:1.02;margin:var(--s3) 0 0;font-variant-numeric:tabular-nums}
+.verdict{font-size:var(--t-3xl);font-weight:650;letter-spacing:-.026em;margin:var(--s2) 0 0}
+.ci{color:var(--muted);font-size:var(--t-sm);line-height:1.8;margin-top:var(--s3);
+  max-width:70ch}
+.ci b{font-weight:600;color:var(--ink)}
+
+/* A key for four bars whose names do not explain themselves. The swatches are
+   the chart's own fills, including Control's outline treatment. */
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:9px var(--s5);
+  grid-template-columns:auto auto;font-size:var(--t-sm);color:var(--muted)}
+.legend li{display:flex;align-items:center;gap:9px;white-space:nowrap}
+.legend i{flex:none;width:11px;height:11px;border-radius:3px;font-style:normal}
+.legend .sw-control{background:#fff;border:1.5px solid var(--n400)}
+.legend .sw-baseline{background:var(--n300)}
+.legend .sw-engine{background:var(--brand)}
+.legend .sw-oracle{background:var(--n100);border:1px solid var(--n200)}
+
+.chartbox{position:relative;height:clamp(290px,30vw,380px);
+  margin-top:var(--s6);min-width:0}
+.chartnote{color:var(--muted);font-size:var(--t-sm);line-height:1.7;
+  margin:var(--s6) 0 0;padding-top:var(--s5);border-top:1px solid var(--hair);
+  max-width:88ch}
+
+/* ==========================================================================
+   Panel — the workhorse container. Border, not shadow: only the hero floats.
+   ========================================================================== */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sh-1);padding:var(--s6);margin-top:var(--s5)}
+.panel h3{margin:0 0 var(--s2);font-size:var(--t-xl);font-weight:600;color:var(--ink)}
+.lede{color:var(--muted);font-size:var(--t-md);line-height:1.65;margin:0;max-width:78ch}
+.panel > .lede{margin-bottom:var(--s5)}
+.small{color:var(--muted);font-size:var(--t-sm)}
+
+.row{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center}
+.panel .row{margin:var(--s5) 0 0}
+.confirm .row{margin:var(--s4) 0 0}
+.row label.small{margin-left:var(--s2)}
+.row label.small:first-child{margin-left:0}
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
+select,.who{font:inherit;font-size:var(--t-md);color:var(--ink);background:var(--card);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 12px;
+  box-shadow:var(--sh-1);
+  transition:border-color .15s ease,box-shadow .15s ease}
+select{appearance:none;-webkit-appearance:none;padding-right:32px;cursor:pointer;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2366726d' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center}
+select:hover,.who:hover{border-color:var(--n300)}
+select:focus,.who:focus,select:focus-visible,.who:focus-visible{
+  outline:none;border-color:var(--brand);box-shadow:var(--ring)}
+.who{width:140px}
+#ops_reason{width:min(300px,100%)}
+
+.act{font:inherit;font-size:var(--t-md);font-weight:500;line-height:1.2;
+  padding:10px 15px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:var(--r-sm);cursor:pointer;box-shadow:var(--sh-1);
+  transition:background .15s ease,border-color .15s ease,box-shadow .15s ease,
+             transform .08s ease,color .15s ease}
+.act:hover{background:var(--n50);border-color:var(--n300)}
+.act:active{transform:translateY(1px);box-shadow:none}
+.act:focus-visible{outline:none;border-color:var(--brand);box-shadow:var(--ring)}
+.act:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;transform:none}
+.act:disabled:hover{background:var(--card);border-color:var(--line)}
+/* The feed's pause toggle, while it is holding the feed still. */
+.act.on{background:var(--n800);border-color:var(--n800);color:#fff}
+.act.on:hover{background:var(--n900);border-color:var(--n900)}
+/* The one loud control on the page. */
+.act.stop{background:var(--stop);border-color:var(--stop);color:#fff;
+  box-shadow:0 1px 2px rgba(143,44,37,.32)}
+.act.stop:hover{background:var(--r700);border-color:var(--r700)}
+.act.stop:focus-visible{border-color:var(--r700);box-shadow:var(--ring-stop)}
+#stopbtn{padding:12px 20px;font-size:var(--t-base);font-weight:600}
+
+/* ==========================================================================
+   Banner + confirm — the two red surfaces
+   ========================================================================== */
+.banner{display:none;align-items:center;justify-content:space-between;gap:var(--s5);
+  flex-wrap:wrap;background:var(--stopbg);border:1px solid var(--stopline);
+  color:var(--r700);padding:var(--s4) var(--s5);border-radius:var(--r-lg);
+  margin:0 0 var(--s6);font-size:var(--t-md);line-height:1.65;
+  box-shadow:0 1px 2px rgba(143,44,37,.06)}
+.banner b{font-weight:600;color:var(--stop)}
+.banner .act{flex:none;background:var(--card);border-color:var(--stopline);color:var(--r700)}
+.banner .act:hover{background:#fff;border-color:var(--stop)}
+
+.confirm{background:var(--stopbg);border:1px solid var(--stopline);
+  border-radius:var(--r-md);padding:var(--s5);margin-top:var(--s5);
+  font-size:var(--t-md);line-height:1.65}
+
+.opsnote{margin-top:var(--s4);font-size:var(--t-md);color:var(--muted);line-height:1.65}
+.opsnote:empty{display:none}
+.opsnote.err{color:var(--stop);padding-left:12px;border-left:2px solid var(--stop)}
+.opsnote.ok{color:var(--g700);padding-left:12px;border-left:2px solid var(--g500)}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+.tbl{margin-top:var(--s5);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tbl > table{margin-top:0}
+table{width:100%;border-collapse:collapse;font-size:var(--t-md);margin-top:var(--s5)}
+th{text-align:left;font-weight:500;font-size:var(--t-xs);color:var(--muted);
+  letter-spacing:.01em;padding:0 var(--s4) var(--s3);
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:13px var(--s4);border-bottom:1px solid var(--hair);vertical-align:top}
+th:first-child,td:first-child{padding-left:0}
+th:last-child,td:last-child{padding-right:0}
+tbody tr:last-child td{border-bottom:0}
+tbody tr[onclick]{cursor:pointer;transition:background .14s ease}
+tbody tr[onclick]:hover{background:var(--n50)}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lost td{color:var(--warn)}
+/* Identifiers are things somebody greps for, so they are set as code. */
+#cases tbody td:first-child,#livetable tbody td:first-child,
+#cotable tbody td:first-child,#ops_audit tbody td:nth-child(3),
+#unmatched td:first-child{font-family:var(--mono);font-size:var(--t-sm);
+  color:var(--n700);letter-spacing:-.01em}
+
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
+  border-radius:var(--r-full);font-size:var(--t-xs);font-weight:500;line-height:1.5;
+  background:var(--n100);color:var(--n600);border:1px solid transparent;white-space:nowrap}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;
+  background:currentColor;opacity:.65;flex:none}
+.pill.good{background:var(--g50);color:var(--g700);border-color:var(--g100)}
+.pill.warn{background:var(--a50);color:var(--a700);border-color:var(--a100)}
+
+.empty{color:var(--muted);font-size:var(--t-md);line-height:1.75;padding:var(--s8) 0;
+  max-width:74ch}
+td.empty{padding:var(--s8) var(--s4) var(--s8) 0}
+
+/* ==========================================================================
+   Figures — a ruled band (strip) and a ruled list (facts)
+   ========================================================================== */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:var(--r-md);overflow:hidden;margin-top:var(--s5)}
+.strip:empty{display:none}
+.strip .s{background:var(--card);padding:var(--s4) var(--s5)}
+.strip .k{color:var(--muted);font-size:var(--t-sm);line-height:1.4}
+.strip .v{font-size:var(--t-2xl);font-weight:650;letter-spacing:-.026em;margin-top:5px;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.strip .n{color:var(--muted);font-size:var(--t-sm);line-height:1.5;margin-top:4px}
+
+.facts{display:grid;grid-template-columns:minmax(0,1fr) auto;margin:0}
+.facts .f{display:contents}
+.facts .fk{padding:var(--s4) 0;border-bottom:1px solid var(--hair);
+  font-size:var(--t-base);color:var(--ink)}
+.facts .fv{padding:var(--s4) 0 var(--s4) var(--s7);border-bottom:1px solid var(--hair);
+  text-align:right;font-weight:650;white-space:nowrap;font-size:var(--t-lg);
+  letter-spacing:-.018em;font-variant-numeric:tabular-nums}
+.facts .fn{color:var(--muted);font-size:var(--t-sm);line-height:1.55;margin-top:4px;
+  max-width:62ch;font-weight:400}
+.facts .f:first-child .fk,.facts .f:first-child .fv{padding-top:0}
+.facts .f:last-child .fk,.facts .f:last-child .fv{border-bottom:0;padding-bottom:0}
+
+.kv{display:grid;grid-template-columns:210px minmax(0,1fr);gap:10px var(--s6);
+  font-size:var(--t-md)}
+.kv div:nth-child(odd){color:var(--muted)}
+.kv div:nth-child(even){color:var(--ink-2)}
+
+.gate{display:flex;justify-content:space-between;gap:var(--s5);padding:11px 0;
+  border-bottom:1px solid var(--hair);font-size:var(--t-md)}
+.gate:last-child{border-bottom:0}
+.gate .no{color:var(--warn);font-weight:500}
+.gate .yes{color:var(--n500)}
+.gate .gid{display:inline-block;min-width:36px;color:var(--n500);
+  font-family:var(--mono);font-size:var(--t-xs)}
+
+pre{background:#0c1412;color:#c9d6d1;border:1px solid #1c2825;
+  border-radius:var(--r-md);padding:var(--s5);overflow:auto;
+  font:var(--t-sm)/1.7 var(--mono);margin:var(--s5) 0 0;max-height:360px}
+pre::-webkit-scrollbar{width:10px;height:10px}
+pre::-webkit-scrollbar-track{background:transparent}
+pre::-webkit-scrollbar-thumb{background:#2b3a36;border-radius:5px}
+
+/* ==========================================================================
+   Feed — a ruler of timestamps down the left, one coloured dot per row
+   ========================================================================== */
+.feedhead{display:flex;justify-content:space-between;align-items:baseline;
+  gap:var(--s5);flex-wrap:wrap}
+.feed{margin-top:var(--s4);border-top:1px solid var(--line)}
+.ev{display:grid;grid-template-columns:68px 14px minmax(0,1fr);gap:0 var(--s4);
+  padding:12px 8px 12px 2px;border-bottom:1px solid var(--hair);
+  align-items:baseline;border-radius:var(--r-xs)}
+.ev:hover{background:var(--n25)}
+.ev .t{color:var(--n500);font-size:var(--t-xs);font-family:var(--mono);
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.ev .dot{width:7px;height:7px;border-radius:50%;background:var(--n400);
+  align-self:center;box-shadow:0 0 0 3px var(--n100)}
+.ev.good .dot{background:var(--g600);box-shadow:0 0 0 3px var(--g50)}
+.ev.bad .dot,.ev.stop .dot{background:var(--stop);box-shadow:0 0 0 3px var(--r50)}
+.ev.warn .dot{background:var(--warn);box-shadow:0 0 0 3px var(--a50)}
+.ev.act .dot{background:var(--b600);box-shadow:0 0 0 3px var(--b50)}
+.ev .h{font-size:var(--t-md);line-height:1.55}
+.ev .d{color:var(--muted);font-size:var(--t-sm);line-height:1.6;margin-top:4px}
+.ev .d code{font-size:var(--t-xs)}
+.ev .d code:hover{background:var(--n200);color:var(--ink)}
+.ev .cnt{color:var(--muted);font-size:var(--t-sm);font-weight:500}
+.ev .amt{font-variant-numeric:tabular-nums;color:var(--n700);font-weight:600}
+.ev.stop .h,.ev.bad .h{color:var(--stop)}
+.ev .gates{margin-top:5px;font-size:var(--t-sm);color:var(--warn);line-height:1.55}
+/* feedTitle() ships an inline colour on the kind label that fails contrast, and
+   an anchor that should read as a link. Both are corrected here. */
+.ev .h > span.small{color:var(--n500)!important;font-weight:500}
+.ev .h a.small{color:var(--g700)!important;border-bottom:1px dashed var(--g200)}
+.ev .h a.small:hover{color:var(--g800)!important;border-bottom-style:solid}
+@keyframes settle{from{background:var(--b50)}to{background:transparent}}
+.ev.fresh{animation:settle 1.5s ease-out}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+.foot{border-top:1px solid var(--line);background:var(--card)}
+.foot__in{max-width:var(--maxw);margin:0 auto;padding:var(--s6) var(--gutter);
+  display:flex;justify-content:space-between;gap:var(--s5);flex-wrap:wrap;
+  font-size:var(--t-sm);color:var(--muted)}
+.foot__links{display:flex;gap:var(--s5);flex-wrap:wrap}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+@media (max-width:960px){
+  :root{--gutter:var(--s5)}
+  .hero{padding:var(--s6)}
+  .hero__head{grid-template-columns:minmax(0,1fr);gap:var(--s5)}
+  .legend{grid-template-columns:repeat(2,auto);justify-content:start}
+  .kv{grid-template-columns:minmax(0,1fr);gap:2px}
+  .kv div:nth-child(even){margin-bottom:var(--s3)}
+}
+@media (max-width:720px){
+  :root{--gutter:var(--s4)}
+  .appbar__in{padding:var(--s3) var(--gutter) 10px;gap:var(--s3)}
+  .tag{display:none}
+  .mark__tile{width:30px;height:30px}
+  .mark h1{font-size:var(--t-lg)}
+  .wrap{padding:var(--s5) var(--gutter) var(--s9)}
+  .panel{padding:var(--s5) var(--s4);border-radius:var(--r-md)}
+  /* Tables the page script generates are not wrapped, so the surface under
+     them is what scrolls. */
+  .panel,#unmatched,#ops_attention > div,#dec .panel{overflow-x:auto}
+  .ev{grid-template-columns:58px 12px minmax(0,1fr);gap:0 var(--s3)}
+  .facts .fv{padding-left:var(--s4)}
+  .runsel label{display:none}
+  .chartbox{height:300px}
+}
+@media (max-width:440px){
+  .big{font-size:34px}
+  .strip{grid-template-columns:minmax(0,1fr)}
+  .legend{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms!important;
+    animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
 </style>
 </head>
-<body><div class="wrap">
+<body>
+<a class="skip" href="#main">Skip to content</a>
 
-<header>
-  <div>
-    <h1>RazorRecovery</h1>
-    <p class="tag">Only counts money it can prove it caused.</p>
+<header class="appbar">
+  <div class="appbar__in">
+    <div class="mark">
+      <span class="mark__tile" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 18 18" role="presentation">
+          <rect x="1" y="10" width="4" height="6.5" rx="1.3" fill="currentColor" opacity=".45"/>
+          <rect x="7" y="6" width="4" height="10.5" rx="1.3" fill="currentColor" opacity=".72"/>
+          <rect x="13" y="1.5" width="4" height="15" rx="1.3" fill="currentColor"/>
+        </svg>
+      </span>
+      <div class="mark__text">
+        <h1>RazorRecovery</h1>
+        <p class="tag">Only counts money it can prove it caused.</p>
+      </div>
+    </div>
+    <div class="runsel">
+      <label for="run">Benchmark run</label>
+      <select id="run" onchange="loadAll()"></select>
+    </div>
   </div>
-  <select id="run" onchange="loadAll()"></select>
+
+  <div class="navwrap">
+    <nav aria-label="Dashboard sections">
+      <button class="on" aria-pressed="true" onclick="tab('s0',this)">Scoreboard</button>
+      <button aria-pressed="false" onclick="tab('s1',this)">Cases</button>
+      <button aria-pressed="false" onclick="tab('s2',this)">Decision</button>
+      <button aria-pressed="false" onclick="tab('s3',this)">Live ops</button>
+      <button aria-pressed="false" onclick="tab('s4',this)">Demo</button>
+      <button aria-pressed="false" onclick="tab('s5',this)">Ops</button>
+    </nav>
+  </div>
 </header>
 
-<nav>
-  <button class="on" onclick="tab('s0',this)">Scoreboard</button>
-  <button onclick="tab('s1',this)">Cases</button>
-  <button onclick="tab('s2',this)">Decision</button>
-  <button onclick="tab('s3',this)">Live ops</button>
-  <button onclick="tab('s4',this)">Demo</button>
-  <button onclick="tab('s5',this)">Ops</button>
-</nav>
+<main class="wrap" id="main">
 
-<div class="banner" id="pausebar">
+<div class="banner" id="pausebar" role="status">
   <div><b>Recovery is paused.</b> <span id="pausebar_reason"></span>
     Deciding and executing are stopped; webhooks, settlement matching and the
     abandonment sweep still run, so the ledger keeps up with the world.</div>
@@ -172,30 +522,41 @@
 
 <section class="on" id="s0">
   <div class="hero">
-    <div class="lede">Incremental revenue recovered — engine minus control</div>
-    <div class="big" id="incr">—</div>
-    <div class="ci" id="ci"></div>
-    <div class="chartbox"><canvas id="bars"></canvas></div>
-    <div class="chartnote">Control is not a competitor. It is a randomly held-out
+    <div class="hero__head">
+      <div>
+        <p class="lede">Incremental revenue recovered — engine minus control</p>
+        <div class="big" id="incr">—</div>
+        <div class="ci" id="ci"></div>
+      </div>
+      <ul class="legend">
+        <li><i class="sw-control" aria-hidden="true"></i>Control — held out, never touched</li>
+        <li><i class="sw-baseline" aria-hidden="true"></i>Baseline — a fixed ladder</li>
+        <li><i class="sw-engine" aria-hidden="true"></i>Engine</li>
+        <li><i class="sw-oracle" aria-hidden="true"></i>Oracle — the ceiling</li>
+      </ul>
+    </div>
+    <div class="chartbox"><canvas id="bars" aria-label="Gross recovered by arm"></canvas></div>
+    <p class="chartnote">Control is not a competitor. It is a randomly held-out
       slice of the same traffic that the engine is forbidden to touch, so the gap
       between it and Engine is the only number here that nothing else explains.
       Baseline is what a fixed retry-and-remind ladder gets. Oracle is what
-      perfect play would have got, and it is the denominator — not a target.</div>
+      perfect play would have got, and it is the denominator — not a target.</p>
   </div>
 
   <div class="panel">
     <h3>What it cost to get there</h3>
     <div class="lede">The numbers a recovery engine is usually not asked for.</div>
-    <dl class="facts" id="stats"></dl>
+    <div class="facts" id="stats"></div>
   </div>
 
   <div class="panel">
     <h3>Where we lost</h3>
     <div class="lede">Segments where the engine did worse than doing nothing.</div>
-    <table id="lost"><thead><tr>
-      <th>Segment</th><th class="num">Engine</th><th class="num">Control</th>
-      <th class="num">Difference</th><th class="num">Cases</th>
-      </tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="lost"><thead><tr>
+      <th scope="col">Segment</th><th scope="col" class="num">Engine</th>
+      <th scope="col" class="num">Control</th>
+      <th scope="col" class="num">Difference</th><th scope="col" class="num">Cases</th>
+      </tr></thead><tbody></tbody></table></div>
   </div>
 </section>
 
@@ -207,7 +568,8 @@
       oracle — so the same order appears up to four times, once per arm. That
       repetition is the measurement. Pick a row to see exactly what was known and
       what was decided.</div>
-    <div class="row" style="margin-top:18px">
+    <div class="row">
+      <label class="small" for="arm">Arm</label>
       <select id="arm" onchange="loadCases()">
         <option value="">All arms</option><option>ENGINE</option>
         <option>BASELINE</option><option>CONTROL</option><option>ORACLE</option>
@@ -217,17 +579,19 @@
       <button class="act" onclick="loadHl('write_off')">A case we gave up on</button>
       <button class="act" onclick="loadHl('big_save')">The biggest save</button>
     </div>
-    <table id="cases"><thead><tr>
-      <th>Case</th><th>Failure</th><th>Method</th><th class="num">Amount</th>
-      <th class="num">Rung</th><th>Arm</th><th>Status</th></tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="cases"><thead><tr>
+      <th scope="col">Case</th><th scope="col">Failure</th><th scope="col">Method</th>
+      <th scope="col" class="num">Amount</th>
+      <th scope="col" class="num">Rung</th><th scope="col">Arm</th>
+      <th scope="col">Status</th></tr></thead><tbody></tbody></table></div>
   </div>
 </section>
 
 <section id="s2">
-  <div id="dec"><div class="empty">Nothing selected yet. Open the Cases tab and
-    pick a row — or one of the four highlights there — and the whole decision
-    record lands here: what was known, which gates ran, what each candidate
-    action scored, and why this one won.</div></div>
+  <div id="dec"><div class="panel"><div class="empty">Nothing selected yet. Open the
+    Cases tab and pick a row — or one of the four highlights there — and the whole
+    decision record lands here: what was known, which gates ran, what each candidate
+    action scored, and why this one won.</div></div></div>
 </section>
 
 <section id="s3">
@@ -238,13 +602,15 @@
       <i>waits</i> so a six-hour ladder is watchable; it never touches the clock, so
       every timestamp below is real.</div>
     <div class="strip" id="livetotals"></div>
-    <div class="row" style="margin-top:16px">
+    <div class="row">
       <button class="act" onclick="demoFail()">Seed a failed payment</button>
       <button class="act" onclick="tickNow()">Tick once, by hand</button>
     </div>
-    <table id="livetable"><thead><tr>
-      <th>Case</th><th>Failure</th><th class="num">Amount</th><th class="num">Rung</th>
-      <th class="num">Contacts</th><th>Status</th><th>Last decision</th></tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="livetable"><thead><tr>
+      <th scope="col">Case</th><th scope="col">Failure</th>
+      <th scope="col" class="num">Amount</th><th scope="col" class="num">Rung</th>
+      <th scope="col" class="num">Contacts</th><th scope="col">Status</th>
+      <th scope="col">Last decision</th></tr></thead><tbody></tbody></table></div>
   </div>
   <div class="panel">
     <h3>Settled money, and how sure we are it belongs here</h3>
@@ -253,9 +619,11 @@
       Level 4 matched only an amount — that is a guess, and it is labelled one.
       Level 5 is a human's word for money we never saw arrive.</div>
     <div class="strip" id="matchtotals"></div>
-    <table id="matchdist"><thead><tr>
-      <th>Level</th><th>Matched on</th><th>Confidence</th>
-      <th class="num">Settlements</th><th class="num">Amount</th></tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="matchdist"><thead><tr>
+      <th scope="col">Level</th><th scope="col">Matched on</th>
+      <th scope="col">Confidence</th>
+      <th scope="col" class="num">Settlements</th>
+      <th scope="col" class="num">Amount</th></tr></thead><tbody></tbody></table></div>
     <div id="unmatched"></div>
   </div>
   <div class="panel">
@@ -266,18 +634,20 @@
       gets paid within the minute. Only the sweeper, <span id="abmin">30</span> minutes
       later, turns silence into a case.</div>
     <div class="strip" id="cototals"></div>
-    <div class="row" style="margin-top:16px">
+    <div class="row">
       <button class="act" onclick="sweep()">Run the sweep</button>
       <button class="act" onclick="sweep(1)">Sweep with a 1-minute window</button>
     </div>
-    <table id="cotable"><thead><tr>
-      <th>Order</th><th class="num">Amount</th><th>Created</th>
-      <th>State</th><th>What happened</th></tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="cotable"><thead><tr>
+      <th scope="col">Order</th><th scope="col" class="num">Amount</th>
+      <th scope="col">Created</th>
+      <th scope="col">State</th><th scope="col">What happened</th>
+      </tr></thead><tbody></tbody></table></div>
   </div>
   <div class="panel">
     <h3>Break it on purpose</h3>
     <div class="lede">Each button injects a real failure and shows what the system did.</div>
-    <div class="row" style="margin-top:16px">
+    <div class="row">
       <button class="act" onclick="chaos('duplicate_webhook')">Duplicate webhook</button>
       <button class="act" onclick="chaos('kill_llm')">Kill the LLM</button>
       <button class="act" onclick="chaos('executor_timeout')">Executor timeout</button>
@@ -299,14 +669,14 @@
       </div>
       <div class="small" id="feed_meta"></div>
     </div>
-    <div class="row" style="margin-top:16px">
-      <select id="feed_window" onchange="loadFeed(true)">
+    <div class="row">
+      <select id="feed_window" aria-label="Time window" onchange="loadFeed(true)">
         <option value="5">Last 5 minutes</option>
         <option value="30" selected>Last 30 minutes</option>
         <option value="180">Last 3 hours</option>
         <option value="1440">Today</option>
       </select>
-      <select id="feed_kind" onchange="renderFeed()">
+      <select id="feed_kind" aria-label="Event kind" onchange="renderFeed()">
         <option value="">Everything</option>
         <option value="decision">Decisions only</option>
         <option value="execute">Actions taken</option>
@@ -330,24 +700,26 @@
       Webhooks, settlement matching and the abandonment sweep <b>keep running</b> —
       a paused engine that stops listening comes back to a ledger that drifted
       while it was off.</div>
-    <div class="row" style="margin-top:18px;align-items:center">
+    <div class="row">
       <button class="act stop" id="stopbtn" onclick="opsBigButton()">Pause all recovery</button>
+      <label class="small" for="ops_who">Operator</label>
       <input class="who" id="ops_who" value="operator" title="recorded on every change">
-      <input class="who" id="ops_reason" style="width:260px" placeholder="reason (optional)">
+      <label class="small" for="ops_reason">Reason</label>
+      <input class="who" id="ops_reason" placeholder="optional">
     </div>
     <div class="opsnote" id="stopnote"></div>
 
-    <div style="margin-top:26px">
+    <div style="margin-top:32px">
       <div class="small">Or stop something narrower. A scoped pause leaves the rest
         of the ladder moving.</div>
-      <div class="row" style="margin-top:10px;align-items:center">
-        <select id="ops_scope" onchange="opsScopeChanged()">
+      <div class="row">
+        <select id="ops_scope" aria-label="Pause scope" onchange="opsScopeChanged()">
           <option value="merchant">This merchant</option>
           <option value="action">One action type</option>
           <option value="rung">This rung and above</option>
         </select>
-        <select id="ops_action"><!-- filled from ACTION_PLURAL at boot --></select>
-        <select id="ops_rung">
+        <select id="ops_action" aria-label="Action type"><!-- filled from ACTION_PLURAL at boot --></select>
+        <select id="ops_rung" aria-label="Rung">
           <option value="1">1 — retry and above</option>
           <option value="2">2 — remind and above</option>
           <option value="3">3 — pay link and above</option>
@@ -359,15 +731,17 @@
       </div>
     </div>
 
-    <table id="ops_pauses" style="display:none"><thead><tr>
-      <th>Scope</th><th>Reason</th><th>Raised by</th><th>At</th>
-      <th class="num">Cancelled</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="ops_pauses" style="display:none"><thead><tr>
+      <th scope="col">Scope</th><th scope="col">Reason</th><th scope="col">Raised by</th>
+      <th scope="col">At</th>
+      <th scope="col" class="num">Cancelled</th><th scope="col"></th>
+      </tr></thead><tbody></tbody></table></div>
   </div>
 
   <div class="panel">
     <h3>Mode</h3>
     <div class="lede" id="mode_lede">—</div>
-    <div class="row" style="margin-top:16px">
+    <div class="row">
       <button class="act" id="mode_dry" onclick="opsMode(true)">Dry run</button>
       <button class="act" id="mode_live" onclick="opsAskLive()">Go live</button>
       <button class="act" onclick="opsMode(null)">Follow the environment</button>
@@ -387,14 +761,14 @@
     <div class="lede">Since local midnight. Money recovered is shown next to what
       the actions cost, because a recovery number with no cost beside it is a
       number nobody can act on.</div>
-    <dl class="facts" id="ops_today"></dl>
+    <div class="facts" id="ops_today"></div>
   </div>
 
   <div class="panel">
     <h3>Needs a human</h3>
     <div class="lede">Nothing on this list resolves itself. An empty list here is
       the normal state, not a missing feature.</div>
-    <div class="row" style="margin-top:16px">
+    <div class="row">
       <button class="act" onclick="opsReconcile()">Reconcile the unknowns</button>
     </div>
     <div class="opsnote" id="rec_note"></div>
@@ -408,10 +782,10 @@
       Changing it here does not weaken the gate and does not edit
       <code>config/default.yaml</code> — it builds a config for this merchant, which
       is why the effective config version changes when you save.</div>
-    <div class="row" style="margin-top:16px;align-items:center">
-      <span class="small">No contact between</span>
+    <div class="row">
+      <label class="small" for="q_start">No contact between</label>
       <select id="q_start"></select>
-      <span class="small">and</span>
+      <label class="small" for="q_end">and</label>
       <select id="q_end"></select>
       <button class="act" onclick="opsQuiet()">Save</button>
       <button class="act" onclick="opsQuietReset()">Back to the file default</button>
@@ -422,15 +796,28 @@
   <div class="panel">
     <h3>Configuration</h3>
     <div class="kv" id="ops_config"></div>
-    <div class="lede" style="margin-top:18px">A version string says the settings
+    <div class="lede" style="margin-top:24px">A version string says the settings
       changed. The table says what they were.</div>
-    <table id="ops_audit"><thead><tr>
-      <th>When</th><th>Who</th><th>What</th><th>Before</th><th>After</th>
-      </tr></thead><tbody></tbody></table>
+    <div class="tbl"><table id="ops_audit"><thead><tr>
+      <th scope="col">When</th><th scope="col">Who</th><th scope="col">What</th>
+      <th scope="col">Before</th><th scope="col">After</th>
+      </tr></thead><tbody></tbody></table></div>
   </div>
 </section>
 
-</div>
+</main>
+
+<footer class="foot">
+  <div class="foot__in">
+    <p>Every figure on this page is read back out of the ledger the engine decides from.</p>
+    <div class="foot__links">
+      <a href="/checkout">Merchant checkout</a>
+      <a href="/health">Health</a>
+      <a href="/docs">API</a>
+    </div>
+  </div>
+</footer>
+
 <script>
 const R = p => "₹" + Math.round((p||0)/100).toLocaleString("en-IN");
 const $ = s => document.querySelector(s);
@@ -455,7 +842,7 @@ const valueLabels = {
     ctx.font = "600 13px " + FONT;
     ctx.textAlign = "center"; ctx.textBaseline = "bottom";
     meta.data.forEach((bar, i) => {
-      ctx.fillStyle = i === 2 ? "#1a6b4f" : "#6b7079";
+      ctx.fillStyle = i === 2 ? "#13543e" : "#66726d";
       ctx.fillText("₹" + Math.round(c.data.datasets[0].data[i]).toLocaleString("en-IN"),
                    bar.x, bar.y - 8);
     });
@@ -476,7 +863,7 @@ const gapBracket = {
     const yTop = eng.y, yBot = ctrl.y;
     ctx.save();
     // The control level, carried across to where the gap is measured.
-    ctx.strokeStyle = "#c6cad1"; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+    ctx.strokeStyle = "#bcc7c3"; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
     ctx.beginPath(); ctx.moveTo(ctrl.x, yBot); ctx.lineTo(x + 5, yBot); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(eng.x, yTop); ctx.lineTo(x + 5, yTop); ctx.stroke();
     // The bracket itself, in the engine's colour: this is what the engine added.
@@ -489,7 +876,7 @@ const gapBracket = {
     ctx.fillStyle = "#1a6b4f"; ctx.textAlign = "left";
     ctx.font = "600 13px " + FONT;
     ctx.fillText(R(BOARD.headline.incremental), x + 10, (yTop + yBot)/2 - 3);
-    ctx.fillStyle = "#6b7079"; ctx.font = "400 12px " + FONT;
+    ctx.fillStyle = "#66726d"; ctx.font = "400 12px " + FONT;
     ctx.fillText("incremental", x + 10, (yTop + yBot)/2 + 13);
     ctx.restore();
   }
@@ -695,19 +1082,19 @@ async function loadBoard(){
             // Control is drawn as an outline, not a filled bar. It is the thing
             // the others are measured against, and a solid bar in the same
             // family reads as a fourth contestant.
-            backgroundColor:["#fff","#c6cad1","#1a6b4f","#e7e9ec"],
-            borderColor:["#8a8f98","#c6cad1","#1a6b4f","#e7e9ec"],
+            backgroundColor:["#fff","#bcc7c3","#1a6b4f","#e5ebe9"],
+            borderColor:["#8e9b97","#bcc7c3","#1a6b4f","#e5ebe9"],
             borderWidth:[1.5,0,0,0],
-            borderRadius:3,barPercentage:.6}]},
+            borderRadius:6,barPercentage:.62,maxBarThickness:96}]},
     options:{maintainAspectRatio:false,
       // Room above the tallest bar for its value label and for the gap bracket.
-      layout:{padding:{top:26,right:126}},
+      layout:{padding:{top:30,right:window.innerWidth < 640 ? 84 : 132}},
       plugins:{legend:{display:false},tooltip:{enabled:false}},
       scales:{y:{beginAtZero:true,border:{display:false},
-        ticks:{color:"#9aa0a8",font:{size:12},padding:8,callback:lakh},
-        grid:{color:"#eff0f2",drawTicks:false}},
-        x:{grid:{display:false},border:{color:"#e3e5e9"},
-           ticks:{color:"#454a52",font:{size:13}}}}},
+        ticks:{color:"#66726d",font:{size:12.5},padding:12,callback:lakh},
+        grid:{color:"#e5ebe9",drawTicks:false}},
+        x:{grid:{display:false},border:{color:"#d7dfdc"},
+           ticks:{color:"#353f3b",font:{size:13.5,weight:"500"},padding:6}}}},
     plugins:[valueLabels, gapBracket]
   });
 
@@ -1335,4 +1722,24 @@ opsPoll();
 boot();
 openHash();
 </script>
-</body></html>
+
+<script>
+/* Presentation only. Mirrors the `on` class the tab handler already sets onto
+   aria-pressed, so a screen reader is told which tab is current. It reads DOM
+   state and writes an attribute; it calls nothing and changes no behaviour.
+   Safe to delete. */
+(function(){
+  var tabs = [].slice.call(document.querySelectorAll("nav button"));
+  if(!tabs.length || typeof MutationObserver === "undefined") return;
+  var sync = function(){
+    tabs.forEach(function(b){
+      b.setAttribute("aria-pressed", b.classList.contains("on") ? "true" : "false");
+    });
+  };
+  var mo = new MutationObserver(sync);
+  tabs.forEach(function(b){ mo.observe(b, {attributes:true, attributeFilter:["class"]}); });
+  sync();
+})();
+</script>
+</body>
+</html>
