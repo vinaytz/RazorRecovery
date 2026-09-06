@@ -10,100 +10,511 @@
   The log is the point. A judge watching this should be able to read, in order:
   order created -> watched -> paid or failed -> case opened -> and then switch to
   the dashboard and find the same case there.
+
+  Presentation is rewritten here; every id, handler and API call the page script
+  depends on is unchanged.
 -->
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Test-mode checkout for the RazorRecovery demo.">
 <title>Checkout — Acme Retail</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect width='18' height='18' rx='4' fill='%23111917'/%3E%3Cpath d='M4.5 6.5h9l-.8 7a1 1 0 0 1-1 .9H6.3a1 1 0 0 1-1-.9l-.8-7Z' fill='none' stroke='%23fff' stroke-width='1.3' stroke-linejoin='round'/%3E%3Cpath d='M7.1 7.2V5.6a1.9 1.9 0 0 1 3.8 0v1.6' fill='none' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
-  :root{
-    --ink:#16181d; --muted:#6b7079; --line:#e3e5e9; --bg:#fbfbfc; --card:#fff;
-    --engine:#1a6b4f; --warn:#a8531c; --stop:#8f2c25;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
-    font-variant-numeric:tabular-nums}
-  .wrap{max-width:560px;margin:0 auto;padding:44px 24px 90px}
-  .brand{font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
-  h1{font-size:22px;font-weight:600;margin:16px 0 4px;letter-spacing:-.01em}
-  .lede{color:var(--muted);font-size:14px;margin:0 0 24px;max-width:60ch}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:24px 26px}
-  label{display:block;font-size:13px;color:var(--muted);margin:15px 0 5px}
-  label:first-of-type{margin-top:0}
-  input{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);
-    border-radius:8px;background:#fff;color:inherit}
-  input:focus{outline:2px solid var(--engine);outline-offset:1px;border-color:transparent}
-  .amt{max-width:180px}
-  button{font:inherit;border:0;border-radius:8px;cursor:pointer}
-  .pay{width:100%;padding:12px;background:var(--engine);color:#fff;font-weight:600;margin-top:22px}
-  .pay:disabled{opacity:.5;cursor:default}
-  .mini{background:#f2f3f5;color:#454a52;padding:7px 12px;font-size:13px;margin:0 8px 8px 0}
-  .mini:hover{background:#e8eaee}
-  .mini:disabled{opacity:.45;cursor:default}
-  .mode{margin-top:14px;font-size:13px;color:var(--muted)}
-  .mode b{color:var(--ink);font-weight:600}
-  h2{font-size:14px;font-weight:600;margin:34px 0 0}
-  .hint{color:var(--muted);font-size:13px;margin:4px 0 0;max-width:62ch}
-  .log{margin-top:14px;border-top:1px solid var(--line);font-size:13.5px}
-  .log .r{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #f0f1f3;align-items:baseline}
-  .log .t{color:#9aa0a8;font-size:12.5px;white-space:nowrap;min-width:62px}
-  .log .m{flex:1}
-  .log .m code{background:#f2f3f5;padding:1px 5px;border-radius:4px;font-size:12.5px}
-  .good{color:var(--engine)} .warn{color:var(--warn)} .bad{color:var(--stop)}
-  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13.5px}
-  th{text-align:left;color:var(--muted);font-weight:500;padding:8px 0;border-bottom:1px solid var(--line)}
-  td{padding:9px 0;border-bottom:1px solid #f0f1f3}
-  td code{font-size:12.5px}
-  .num{text-align:right;white-space:nowrap}
-  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:#eef0f3;color:#454a52}
-  .pill.w{background:#eef3f9;color:#2b4e7a} .pill.a{background:#f7ece3;color:var(--warn)}
-  .pill.p{background:#e4f0ea;color:var(--engine)}
-  a{color:var(--engine)}
-  .foot{margin-top:30px;color:var(--muted);font-size:13px;max-width:62ch}
+/* ==========================================================================
+   Checkout — the merchant's storefront, on the same token system as the
+   operator dashboard so the two read as one product.
+
+   The customer sees one form and one button. Everything else on the page is
+   there to answer the three questions a checkout has to answer before anyone
+   types a card number: how much, who takes the money, and what happens if it
+   fails.
+   ========================================================================== */
+:root{
+  --n0:#ffffff;
+  --n25:#f8faf9;
+  --n50:#f1f5f4;
+  --n100:#e7ecea;
+  --n200:#dae1df;
+  --n300:#c0cac7;
+  --n400:#94a09d;
+  --n500:#69756f;
+  --n600:#4f5b56;
+  --n700:#38423e;
+  --n800:#222b28;
+  --n900:#111917;
+
+  --g50:#edf5f1;  --g100:#d4e8dd; --g200:#a5d0bd;
+  --g500:#22815e; --g600:#1a6b4f; --g700:#145440; --g800:#0d3c2e;
+  --a50:#fdf3ea;  --a100:#f5e0c9; --a600:#a8531c; --a700:#8a4315;
+  --r50:#fceeed;  --r100:#f2d6d3; --r600:#8f2c25; --r700:#75211c;
+  --b50:#eef3fa;  --b100:#d9e4f2; --b600:#33578a;
+
+  --ink:var(--n900);
+  --muted:var(--n500);
+  --line:var(--n200);
+  --hair:var(--n100);
+  --bg:var(--n25);
+  --card:var(--n0);
+  --brand:var(--g600);
+  --engine:var(--g600);
+  --warn:var(--a600);
+  --stop:var(--r600);
+
+  --s1:4px;  --s2:8px;  --s3:12px; --s4:16px; --s5:20px;
+  --s6:24px; --s7:32px; --s8:40px; --s9:56px; --s10:72px;
+
+  --r-sm:7px; --r-md:10px; --r-lg:12px; --r-xl:16px; --r-full:999px;
+
+  --sh-1:0 1px 2px rgba(17,25,23,.04);
+  --sh-2:0 1px 2px rgba(17,25,23,.05), 0 10px 26px -14px rgba(17,25,23,.20);
+  --focus:0 0 0 3px rgba(26,107,79,.24);
+
+  --font:Inter,"Inter var",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
+         "Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --maxw:1060px;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 var(--font);font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+h1,h2,h3{letter-spacing:-.016em;margin:0}
+a{color:var(--g700);text-decoration:none;border-bottom:1px solid var(--g200);
+  transition:color .14s,border-color .14s}
+a:hover{color:var(--g800);border-bottom-color:var(--g500)}
+a:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
+b,strong{font-weight:600}
+code{font-family:var(--mono);font-size:.88em;background:var(--n100);color:var(--n700);
+  border-radius:5px;padding:1.5px 5px}
+
+.skip{position:absolute;left:-9999px;top:0;z-index:100;background:var(--ink);
+  color:#fff;padding:10px 16px;border-radius:0 0 var(--r-md) 0;font-size:14px}
+.skip:focus{left:0}
+
+/* ==========================================================================
+   Storefront bar
+   ========================================================================== */
+.storebar{background:var(--card);border-bottom:1px solid var(--line)}
+.storebar__in{max-width:var(--maxw);margin:0 auto;padding:var(--s3) var(--s6);
+  display:flex;align-items:center;justify-content:space-between;gap:var(--s4)}
+.mark{display:flex;align-items:center;gap:10px;min-width:0}
+.mark__tile{flex:none;width:30px;height:30px;border-radius:9px;background:var(--n900);
+  color:#fff;display:grid;place-items:center}
+/* #brand is overwritten with textContent, so it holds the merchant name and
+   nothing else — no nested markup here. */
+.mark__name{font-size:15.5px;font-weight:640;letter-spacing:-.012em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.badge{display:inline-flex;align-items:center;gap:7px;flex:none;
+  font-size:12.5px;font-weight:500;color:var(--g700);background:var(--g50);
+  border:1px solid var(--g100);border-radius:var(--r-full);padding:5px 11px}
+.badge svg{flex:none}
+
+/* ==========================================================================
+   Page
+   ========================================================================== */
+.page{max-width:var(--maxw);margin:0 auto;padding:var(--s7) var(--s6) var(--s9)}
+.page__head{margin-bottom:var(--s6);max-width:60ch}
+.page__head h1{font-size:clamp(24px,3.2vw,30px);font-weight:640;letter-spacing:-.028em}
+.lede{color:var(--muted);font-size:14px;line-height:1.65;margin:var(--s2) 0 0}
+
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--s6);
+  align-items:start}
+.col-main{display:flex;flex-direction:column;gap:var(--s5);min-width:0}
+.col-side{position:sticky;top:var(--s5);display:flex;flex-direction:column;
+  gap:var(--s4);min-width:0}
+
+/* ==========================================================================
+   What actually happens when you press Pay. A real three-step sequence,
+   which is the only reason it is numbered.
+   ========================================================================== */
+.steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:var(--s4);margin:0;padding:0;counter-reset:step}
+.steps li{position:relative;padding-top:var(--s4)}
+.steps li::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--n200);border-radius:2px}
+.steps li:first-child::before{background:var(--brand)}
+.steps__n{display:inline-flex;align-items:center;justify-content:center;
+  width:18px;height:18px;border-radius:50%;background:var(--n100);color:var(--n600);
+  font-size:11px;font-weight:600;margin-right:7px;vertical-align:1px}
+.steps li:first-child .steps__n{background:var(--g50);color:var(--g700)}
+.steps b{font-size:13.5px;font-weight:600}
+.steps p{margin:5px 0 0;font-size:12.5px;color:var(--muted);line-height:1.5}
+
+/* ==========================================================================
+   Cards
+   ========================================================================== */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sh-1);padding:var(--s5) var(--s6)}
+.card h2{font-size:15px;font-weight:600}
+.cardhead{display:flex;align-items:center;justify-content:space-between;gap:var(--s3)}
+.hint{color:var(--muted);font-size:13px;line-height:1.6;margin:var(--s2) 0 0;max-width:66ch}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);
+  white-space:nowrap}
+.status::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--g500);
+  box-shadow:0 0 0 3px var(--g50)}
+
+/* The payment card is the one that floats — it is the only thing on this page
+   the customer has to act on. */
+.card--pay{box-shadow:var(--sh-2);padding:var(--s6)}
+
+/* ==========================================================================
+   Form
+   ========================================================================== */
+.field{margin-top:var(--s4)}
+.field:first-of-type{margin-top:var(--s4)}
+label{display:block;font-size:13px;font-weight:500;color:var(--n700);margin:0 0 6px}
+input{width:100%;font:inherit;font-size:14.5px;color:var(--ink);background:var(--card);
+  padding:11px 13px;border:1px solid var(--n200);border-radius:9px;
+  transition:border-color .14s,box-shadow .14s}
+input::placeholder{color:var(--n500)}
+input:hover{border-color:var(--n300)}
+input:focus{outline:none;border-color:var(--brand);box-shadow:var(--focus)}
+.fieldnote{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
+
+.adorn{position:relative;max-width:210px}
+.adorn__sym{position:absolute;left:13px;top:50%;transform:translateY(-50%);
+  color:var(--n500);font-size:14.5px;pointer-events:none}
+.adorn input{padding-left:28px}
+.amt{width:100%}
+/* A stepper on a price field is noise; arrow keys still work. */
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+.pay{width:100%;margin-top:var(--s5);padding:14px 18px;border:0;border-radius:var(--r-md);
+  background:var(--brand);color:#fff;font:inherit;font-size:15px;font-weight:600;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+  box-shadow:0 1px 2px rgba(20,84,62,.32),0 10px 22px -12px rgba(20,84,62,.6);
+  transition:background .15s,box-shadow .15s,transform .06s}
+.pay:hover{background:var(--g700)}
+.pay:active{transform:translateY(1px);box-shadow:0 1px 2px rgba(20,84,62,.32)}
+.pay:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(26,107,79,.32)}
+.pay:disabled{opacity:.55;cursor:default;box-shadow:none;transform:none;
+  background:var(--brand)}
+.pay svg{flex:none;opacity:.9}
+.pay__amt{font-variant-numeric:tabular-nums}
+
+.mode{margin-top:var(--s4);font-size:12.5px;color:var(--muted);line-height:1.6;
+  background:var(--n25);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:10px 12px}
+.mode:empty{display:none}
+.mode b{color:var(--ink);font-weight:600}
+
+.mini{font:inherit;font-size:13px;font-weight:500;line-height:1.2;padding:8px 13px;
+  border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);
+  color:var(--ink);cursor:pointer;box-shadow:var(--sh-1);
+  transition:background .14s,border-color .14s,box-shadow .14s,transform .06s}
+.mini:hover{background:var(--n50);border-color:var(--n300)}
+.mini:active{transform:translateY(1px);box-shadow:none}
+.mini:focus-visible{outline:none;border-color:var(--brand);box-shadow:var(--focus)}
+.mini:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;transform:none}
+.mini:disabled:hover{background:var(--card);border-color:var(--line)}
+.row{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)}
+
+/* ==========================================================================
+   The log — a rail of timestamps with a status edge on every line
+   ========================================================================== */
+.log{margin-top:var(--s4);border-top:1px solid var(--hair)}
+.log:empty::after{content:"Nothing yet. Press Pay and the engine's first move lands here.";
+  display:block;padding:var(--s6) 0;color:var(--muted);font-size:13px}
+.log .r{display:grid;grid-template-columns:58px minmax(0,1fr);gap:0 var(--s3);
+  padding:10px 0;border-bottom:1px solid var(--hair);align-items:baseline}
+.log .r:last-child{border-bottom:0}
+.log .t{color:var(--n500);font-size:11.5px;font-family:var(--mono);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.log .m{font-size:13.5px;line-height:1.6;color:var(--n700);
+  padding-left:var(--s3);border-left:2px solid var(--n200);min-width:0;
+  overflow-wrap:anywhere}
+.log .m code{font-size:11.5px}
+.log .m.good{border-left-color:var(--g500);color:var(--g800)}
+.log .m.warn{border-left-color:var(--a600);color:var(--a700)}
+.log .m.bad{border-left-color:var(--stop);color:var(--r700)}
+@media (prefers-reduced-motion:no-preference){
+  .log .r{animation:logIn .28s ease-out}
+  @keyframes logIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+}
+
+/* ==========================================================================
+   Watch list
+   ========================================================================== */
+.tbl{margin-top:var(--s4);overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-weight:500;font-size:12px;color:var(--muted);
+  padding:0 var(--s3) var(--s2);border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px var(--s3);border-bottom:1px solid var(--hair)}
+th:first-child,td:first-child{padding-left:0}
+th:last-child,td:last-child{padding-right:0}
+tbody tr:last-child td{border-bottom:0}
+td code{font-size:12px;background:none;padding:0;color:var(--n700)}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+td.hint{padding:var(--s6) 0;margin:0}
+
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;
+  border-radius:var(--r-full);font-size:12px;font-weight:500;line-height:1.5;
+  background:var(--n100);color:var(--n600);border:1px solid transparent;white-space:nowrap}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;
+  background:currentColor;opacity:.6;flex:none}
+.pill.w{background:var(--b50);color:var(--b600);border-color:var(--b100)}
+.pill.a{background:var(--a50);color:var(--a700);border-color:var(--a100)}
+.pill.p{background:var(--g50);color:var(--g700);border-color:var(--g100)}
+
+/* ==========================================================================
+   Order summary + trust
+   ========================================================================== */
+.summary h2{margin-bottom:var(--s3)}
+.sumrow{display:flex;justify-content:space-between;gap:var(--s3);
+  padding:9px 0;font-size:13.5px;color:var(--muted);border-bottom:1px solid var(--hair)}
+.sumrow > span:last-child{color:var(--n700);font-variant-numeric:tabular-nums}
+.sumrow--total{border-bottom:0;padding-top:var(--s3);margin-top:var(--s1);
+  border-top:1px solid var(--line);font-size:14px;color:var(--ink);font-weight:600}
+.sumrow--total > span:last-child{color:var(--ink);font-size:19px;font-weight:640;
+  letter-spacing:-.02em}
+.sumnote{margin:var(--s3) 0 0;font-size:12px;color:var(--muted);line-height:1.5}
+
+.trust{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.trust li{display:flex;gap:9px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.trust svg{flex:none;margin-top:2px;color:var(--g500)}
+.trust b{color:var(--n700);font-weight:600}
+
+.note-card{background:var(--n50);border:1px solid var(--line);
+  border-radius:var(--r-md);padding:var(--s4)}
+.note-card h3{font-size:12.5px;font-weight:600;color:var(--n700)}
+.note-card dl{margin:var(--s3) 0 0;display:grid;gap:7px}
+.note-card .kvline{display:flex;justify-content:space-between;gap:var(--s3);
+  align-items:baseline}
+.note-card dt{font-size:12px;color:var(--muted)}
+.note-card dd{margin:0;font-family:var(--mono);font-size:12px;color:var(--n800)}
+.note-card p{margin:var(--s3) 0 0;font-size:12px;color:var(--muted);line-height:1.5}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+.foot{border-top:1px solid var(--line);background:var(--card)}
+.foot__in{max-width:var(--maxw);margin:0 auto;padding:var(--s5) var(--s6);
+  display:flex;justify-content:space-between;gap:var(--s3);flex-wrap:wrap;
+  font-size:12.5px;color:var(--muted)}
+.foot__in p{margin:0}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+@media (max-width:900px){
+  .cols{grid-template-columns:minmax(0,1fr);gap:var(--s5)}
+  /* Lift the summary above the form on a phone, and drop the reference
+     material below it — the total should never be a scroll away from Pay. */
+  .col-side{display:contents}
+  .summary{order:-1}
+  .col-main{order:0}
+  .trust{order:1}
+  .note-card{order:2}
+}
+@media (max-width:640px){
+  .storebar__in{padding:10px var(--s4)}
+  .page{padding:var(--s5) var(--s4) var(--s8)}
+  .card{padding:var(--s4);border-radius:var(--r-md)}
+  .card--pay{padding:var(--s5) var(--s4)}
+  .foot__in{padding:var(--s4)}
+  .steps{grid-template-columns:minmax(0,1fr);gap:var(--s3)}
+  .steps li{padding-top:var(--s3)}
+  .adorn{max-width:none}
+  .badge span{display:none}
+  .badge{padding:6px 8px}
+  .log .r{grid-template-columns:52px minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;
+    animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="brand" id="brand">Acme Retail</div>
-  <h1>Complete your order</h1>
-  <p class="lede">A real test-mode checkout. Pay it, fail it, or close the window —
-    each one is a different thing for the recovery engine to notice, and the log
-    below says which.</p>
+<a class="skip" href="#pay-card">Skip to payment</a>
 
-  <div class="card">
-    <label for="name">Name</label>
-    <input id="name" autocomplete="name" placeholder="Rohit Sharma">
-    <label for="email">Email</label>
-    <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
-    <label for="amount">Amount (₹)</label>
-    <input id="amount" class="amt" type="number" min="1" step="1" value="2899">
-    <button class="pay" id="pay">Pay</button>
-    <div class="mode" id="mode">checking mode…</div>
+<header class="storebar">
+  <div class="storebar__in">
+    <div class="mark">
+      <span class="mark__tile" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" role="presentation">
+          <path d="M3 5.5h10l-.9 8.2a1 1 0 0 1-1 .8H4.9a1 1 0 0 1-1-.8L3 5.5Z"
+                stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+          <path d="M5.9 6.4V4.6a2.1 2.1 0 0 1 4.2 0v1.8"
+                stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="mark__name" id="brand">Acme Retail</span>
+    </div>
+    <span class="badge">
+      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M7 1.2 12 3v3.6c0 3.1-2 5.4-5 6.2-3-.8-5-3.1-5-6.2V3l5-1.8Z"
+              stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        <path d="M4.9 7.1 6.4 8.6 9.4 5.6" stroke="currentColor" stroke-width="1.3"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Test mode — no money moves</span>
+    </span>
+  </div>
+</header>
+
+<main class="page">
+  <div class="page__head">
+    <h1>Complete your order</h1>
+    <p class="lede">A real test-mode checkout. Pay it, fail it, or close the window —
+      each one is a different thing for the recovery engine to notice, and the log
+      below says which.</p>
   </div>
 
-  <h2>What the engine did</h2>
-  <p class="hint">Written as it happens. The same events are on the
-    <a href="/" target="_blank">dashboard</a> — this is the customer's side of them.</p>
-  <div class="log" id="log"></div>
+  <div class="cols">
+    <div class="col-main">
 
-  <h2>Abandonment watch list</h2>
-  <p class="hint">An order nobody paid for emits no webhook, so it is swept for
-    instead. <span id="win"></span></p>
-  <div>
-    <button class="mini" id="simfail" disabled>Simulate a card failure</button>
-    <button class="mini" id="sweep">Sweep now (0 min window)</button>
+      <ol class="steps">
+        <li>
+          <b><span class="steps__n">1</span>You pay</b>
+          <p>Razorpay's own checkout opens. Card details never reach this server.</p>
+        </li>
+        <li>
+          <b><span class="steps__n">2</span>Razorpay confirms</b>
+          <p>The result is fetched from Razorpay and believed over this page.</p>
+        </li>
+        <li>
+          <b><span class="steps__n">3</span>The engine watches</b>
+          <p>Paid, failed or abandoned — each one is a different move.</p>
+        </li>
+      </ol>
+
+      <section class="card card--pay" id="pay-card" aria-labelledby="payhead">
+        <h2 id="payhead">Payment details</h2>
+
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" autocomplete="name" placeholder="Rohit Sharma">
+        </div>
+
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" autocomplete="email" placeholder="you@example.com"
+                 aria-describedby="emailnote">
+          <p class="fieldnote" id="emailnote">Where a recovery message would go if this
+            payment fails.</p>
+        </div>
+
+        <div class="field">
+          <label for="amount">Amount</label>
+          <div class="adorn">
+            <span class="adorn__sym" aria-hidden="true">₹</span>
+            <input id="amount" class="amt" type="number" min="1" step="1" value="2899"
+                   inputmode="numeric">
+          </div>
+        </div>
+
+        <button class="pay" id="pay">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <rect x="2.4" y="6.2" width="9.2" height="6.4" rx="1.6"
+                  stroke="currentColor" stroke-width="1.4"/>
+            <path d="M4.6 6.2V4.4a2.4 2.4 0 0 1 4.8 0v1.8"
+                  stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span>Pay</span><span class="pay__amt" id="pay_total">₹2,899</span>
+        </button>
+
+        <div class="mode" id="mode">checking mode…</div>
+      </section>
+
+      <section class="card" aria-labelledby="loghead">
+        <div class="cardhead">
+          <h2 id="loghead">What the engine did</h2>
+          <span class="status">updates as it happens</span>
+        </div>
+        <p class="hint">The same events are on the
+          <a href="/" target="_blank" rel="noopener">operator dashboard</a> — this is the
+          customer's side of them.</p>
+        <div class="log" id="log" role="log" aria-live="polite"></div>
+      </section>
+
+      <section class="card" aria-labelledby="watchhead">
+        <h2 id="watchhead">Abandonment watch list</h2>
+        <p class="hint">An order nobody paid for emits no webhook, so it is swept for
+          instead. <span id="win"></span></p>
+        <div class="row">
+          <button class="mini" id="simfail" disabled>Simulate a card failure</button>
+          <button class="mini" id="sweep">Sweep now (0 min window)</button>
+        </div>
+        <div class="tbl">
+          <table>
+            <thead><tr>
+              <th scope="col">Order</th><th scope="col">Status</th>
+              <th scope="col" class="num">Amount</th>
+            </tr></thead>
+            <tbody id="watch">
+              <tr><td colspan="3" class="hint">Nothing watched yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+
+    <aside class="col-side" aria-label="Order summary and payment information">
+      <div class="card summary">
+        <h2>Order summary</h2>
+        <div class="sumrow"><span>Subtotal</span><span id="sum_amount">₹2,899</span></div>
+        <div class="sumrow"><span>Taxes and fees</span><span>Included</span></div>
+        <div class="sumrow sumrow--total"><span>Total due</span>
+          <span id="sum_total">₹2,899</span></div>
+        <p class="sumnote">This is a test-mode order. Nothing is charged and no money
+          moves.</p>
+      </div>
+
+      <ul class="trust">
+        <li>
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M2.6 7.2 5.6 10.2l5.8-6" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span><b>Razorpay takes the card.</b> The payment form is theirs, not ours.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M2.6 7.2 5.6 10.2l5.8-6" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span><b>The server verifies every payment</b> with Razorpay before this page
+            is believed.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M2.6 7.2 5.6 10.2l5.8-6" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span><b>If it fails, you will see why.</b> The log records what the engine
+            did next.</span>
+        </li>
+      </ul>
+
+      <div class="note-card">
+        <h3>Test cards</h3>
+        <dl>
+          <div class="kvline"><dt>Succeeds</dt><dd>4111 1111 1111 1111</dd></div>
+          <div class="kvline"><dt>Fails</dt><dd>5104 0600 0000 0008</dd></div>
+        </dl>
+        <p>Any future expiry, any CVV. No money moves in test mode.</p>
+      </div>
+    </aside>
   </div>
-  <table>
-    <thead><tr><th>Order</th><th>Status</th><th class="num">Amount</th></tr></thead>
-    <tbody id="watch"><tr><td colspan="3" class="hint">Nothing watched yet.</td></tr></tbody>
-  </table>
+</main>
 
-  <p class="foot">Test cards: <code>4111 1111 1111 1111</code> succeeds,
-    <code>5104 0600 0000 0008</code> fails. Any future expiry, any CVV.
-    No money moves in test mode.</p>
-</div>
+<footer class="foot">
+  <div class="foot__in">
+    <p>Payments by Razorpay. Recovery measured by RazorRecovery.</p>
+    <p><a href="/">Open the operator dashboard</a></p>
+  </div>
+</footer>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -248,6 +659,34 @@ async function refresh(){
   refresh();
 })();
 setInterval(refresh, 4000);
+</script>
+
+<script>
+/* Presentation only. Keeps the order summary and the pay button's label in step
+   with the amount field. It reads #amount and writes text into three display-only
+   nodes; the payment flow still reads #amount directly and is untouched by this.
+   Safe to delete — the page falls back to its rendered defaults. */
+(function(){
+  var amount = document.getElementById("amount");
+  if(!amount) return;
+  var targets = ["sum_amount", "sum_total", "pay_total"]
+    .map(function(id){ return document.getElementById(id); });
+
+  function render(){
+    var v = parseFloat(amount.value);
+    var ok = v > 0 && isFinite(v);
+    var text = ok ? "\u20B9" + Math.round(v).toLocaleString("en-IN") : "\u2014";
+    targets.forEach(function(el, i){
+      if(!el) return;
+      // The button reads "Pay" on its own when there is nothing to total.
+      el.textContent = (i === 2 && !ok) ? "" : text;
+    });
+  }
+
+  amount.addEventListener("input", render);
+  amount.addEventListener("change", render);
+  render();
+})();
 </script>
 </body>
 </html>
